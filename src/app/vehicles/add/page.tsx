@@ -1,0 +1,913 @@
+'use client';
+import React, { useState, useEffect, useRef } from 'react';
+import { useRouter } from 'next/navigation';
+import { useSession } from 'next-auth/react';
+import { useSnackbar } from '../../../contexts/SnackbarContext';
+import ClientOnly from '../../components/ClientOnly';
+import {
+  Box,
+  Paper,
+  Typography,
+  TextField,
+  Button,
+  MenuItem,
+  CircularProgress,
+  Divider,
+  Avatar,
+  IconButton,
+  FormControl,
+  InputLabel,
+  Select,
+  FormHelperText,
+    
+} from '@mui/material';
+import {
+  ArrowBack,
+  PhotoCamera,
+  Save,
+  Clear,
+  CheckCircle as CheckCircleIcon,
+  Error as ErrorIcon,
+  DirectionsCar as DirectionsCarIcon,
+  ArrowBack as BackIcon,
+} from '@mui/icons-material';
+import Layout from '../../components/Layout';
+import ImageUploadDeferred, { uploadImageFile } from '../../components/ImageUploadDeferred';
+import ColorPickerCompact from '../../../components/ColorPickerCompact';
+
+const CAR_TYPES = [
+  { value: 'Truck', label: 'รถบรรทุก (Truck)' },
+  { value: 'ForkLift', label: 'รถโฟล์คลิฟท์ (ForkLift)' },
+  { value: 'Pickup', label: 'รถกระบะ (Pickup)' },
+];
+
+const CAR_BRANDS = [
+  { value: 'Audi', label: 'อาวดี้' },
+  { value: 'BMW', label: 'บีเอ็มดับเบิ้ลยู' },
+  { value: 'Chevrolet', label: 'เชฟโรเลต' },
+  { value: 'Ford', label: 'ฟอร์ด' },
+  { value: 'Honda', label: 'ฮอนด้า' },
+  { value: 'Hyundai', label: 'ฮุนได' },
+  { value: 'Heno', label: 'ฮีโน่' },
+  { value: 'Isuzu', label: 'อีซูซุ' },
+  { value: 'Kia', label: 'เกียร์' },
+  { value: 'Lexus', label: 'เลกซัส' },
+  { value: 'Mazda', label: 'มาสด้า' },
+  { value: 'Mercedes-Benz', label: 'เมอร์เซเดส-เบนซ์' },
+  { value: 'Mitsubishi', label: 'มิตซูบิชิ' },
+  { value: 'Nissan', label: 'นิสสัน' },
+  { value: 'Porsche', label: 'พอร์ช' },
+  { value: 'Toyota', label: 'โตโยต้า' },
+  { value: 'Volkswagen', label: 'โฟล์คสวาเกน' },
+  { value: 'Other', label: 'อื่นๆ' }
+];
+
+// Helper function to generate driver initials
+const getDriverInitials = (name: string): string => {
+  if (!name) return '?';
+  
+  const words = name.trim().split(' ').filter(word => word.length > 0);
+  if (words.length === 1) {
+    return words[0].charAt(0).toUpperCase();
+  } else if (words.length >= 2) {
+    return (words[0].charAt(0) + words[words.length - 1].charAt(0)).toUpperCase();
+  }
+  return name.charAt(0).toUpperCase();
+};
+
+// Helper function to get proper driver image URL
+const getDriverImageUrl = (driverImage: string | null | undefined): string => {
+  if (!driverImage || driverImage === 'undefined' || driverImage === 'null') {
+    return '';
+  }
+  
+  // If already a full URL (like ui-avatars.com), use as is
+  if (driverImage.startsWith('http')) {
+    return driverImage;
+  }
+  
+  // Handle uploaded images with proper path
+  let imagePath = driverImage;
+  if (!imagePath.startsWith('/uploads/')) {
+    imagePath = `/uploads/driver/${imagePath}`;
+  }
+  
+  // Use serve-image API in production
+  if (process.env.NODE_ENV === 'production') {
+    return `/api/serve-image?path=${encodeURIComponent(imagePath)}`;
+  }
+  
+  return imagePath;
+};
+
+interface CarFormData {
+  licensePlate: string;
+  carBrand: string;
+  carModel: string;
+  color: string;
+  weight: string;
+  fuelTank: string;
+  fuelConsume: string;
+  fuelConsumeMth: string;
+  vehicleType: string;
+  // คนขับ (ใช้ ID แทนข้อมูลโดยตรง)
+  mainDriverId: string;
+  backupDriverId: string;
+  // อื่นๆ
+  remark: string;
+  carImage: string;
+}
+
+function AddCarPageContent() {
+  const router = useRouter();
+  const { data: session } = useSession();
+  const { showSnackbar } = useSnackbar();
+  const [loading, setLoading] = useState(false);
+  const [licensePlateExists, setLicensePlateExists] = useState(false);
+  const [checkingLicense, setCheckingLicense] = useState(false);
+  const [licensePlateFormatValid, setLicensePlateFormatValid] = useState(true);
+  
+  // State สำหรับเก็บรายการคนขับ
+  const [drivers, setDrivers] = useState<Array<{
+    id: number;
+    driverName: string;
+    driverLicense: string;
+    driverImage: string;
+    isActive: boolean;
+  }>>([]);
+  const [loadingDrivers, setLoadingDrivers] = useState(false);
+  
+  // State สำหรับเก็บไฟล์ที่จะอัปโหลด (เฉพาะรถ)
+  const [carImageFile, setCarImageFile] = useState<File | null>(null);
+
+  // State สำหรับ validation errors
+  const [validationErrors, setValidationErrors] = useState({
+    mainDriverId: false,
+  });
+
+  // Refs for focusing
+  const licensePlateRef = useRef<HTMLDivElement>(null);
+  const brandRef = useRef<HTMLDivElement>(null);
+  const modelRef = useRef<HTMLDivElement>(null);
+  const vehicleTypeRef = useRef<HTMLDivElement>(null);
+  const mainDriverRef = useRef<HTMLDivElement>(null);
+
+  const [formData, setFormData] = useState<CarFormData>({
+    licensePlate: '',
+    carBrand: '',
+    carModel: '',
+    color: '',
+    weight: '',
+    fuelTank: '',
+    fuelConsume: '',
+    fuelConsumeMth: '',
+    vehicleType: '',
+    // คนขับ (ใช้ ID)
+    mainDriverId: '',
+    backupDriverId: '',
+    // อื่นๆ
+    remark: '',
+    carImage: '',
+  });
+  
+  // Fetch available drivers
+  const fetchDrivers = async () => {
+    setLoadingDrivers(true);
+    try {
+      const response = await fetch('/api/drivers/options?activeOnly=true');
+      const result = await response.json();
+      
+      if (response.ok) {
+        setDrivers(result.drivers || []);
+      } else {
+        showSnackbar('เกิดข้อผิดพลาดในการดึงข้อมูลคนขับ', 'error');
+      }
+    } catch (error) {
+      console.error('Error fetching drivers:', error);
+      showSnackbar('เกิดข้อผิดพลาดในการดึงข้อมูลคนขับ', 'error');
+    } finally {
+      setLoadingDrivers(false);
+    }
+  };
+
+  // Fetch drivers on component mount
+  useEffect(() => {
+    fetchDrivers();
+  }, []);
+
+  // ตรวจสอบรูปแบบทะเบียนรถไทย
+  const validateThaiLicensePlate = (licensePlate: string): boolean => {
+    if (!licensePlate.trim()) return true; // อนุญาตให้ว่างเปล่า
+    
+    // รูปแบบทะเบียนรถไทย:
+    // - 2-3 ตัวอักษร/ตัวเลข (ไทย, อังกฤษ, หรือตัวเลข) + เครื่องหมาย - + 1-4 ตัวเลข
+    // เช่น กข-1234, abc-123, 12-3456, 123-4567, ก1-234
+    const thaiLicensePattern = /^[ก-๙a-zA-Z0-9]{2,3}-\d{1,4}$/;
+    return thaiLicensePattern.test(licensePlate.trim());
+  };
+
+  // ตรวจสอบทะเบียนรถเมื่อมีการเปลี่ยนแปลง
+  useEffect(() => {
+    const timeoutId = setTimeout(() => {
+      if (formData.licensePlate) {
+        // ตรวจสอบรูปแบบก่อน
+        const isFormatValid = validateThaiLicensePlate(formData.licensePlate);
+        setLicensePlateFormatValid(isFormatValid);
+        
+        // ถ้ารูปแบบถูกต้องค่อยตรวจสอบการซ้ำ
+        if (isFormatValid) {
+          checkLicensePlate(formData.licensePlate);
+        } else {
+          setLicensePlateExists(false);
+        }
+      } else {
+        setLicensePlateExists(false);
+        setLicensePlateFormatValid(true);
+      }
+    }, 500);
+
+    return () => clearTimeout(timeoutId);
+  }, [formData.licensePlate]);
+
+  // ตรวจสอบทะเบียนรถซ้ำ
+  const checkLicensePlate = async (licensePlate: string) => {
+    if (!licensePlate.trim()) {
+      setLicensePlateExists(false);
+      return;
+    }
+
+    setCheckingLicense(true);
+    try {
+      const response = await fetch(`/api/vehicles/check-license-plate`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({ licensePlate })
+      });
+      const result = await response.json();
+      
+      if (response.ok) {
+        setLicensePlateExists(result.exists);
+      } else {
+        console.error('Error checking license plate:', result.error);
+        setLicensePlateExists(false);
+      }
+    } catch (error) {
+      console.error('Error checking license plate:', error);
+      setLicensePlateExists(false);
+    } finally {
+      setCheckingLicense(false);
+    }
+  };
+
+  const handleChange = (e: React.ChangeEvent<HTMLInputElement> | any) => {
+    const { name, value } = e.target;
+    
+    // สำหรับทะเบียนรถ: ตรวจสอบรูปแบบตามมาตรฐานไทย
+    if (name === 'licensePlate') {
+      // อนุญาตเฉพาะตัวอักษรไทย, อังกฤษ, ตัวเลข, เครื่องหมาย - และช่องว่าง
+      const validInput = value.replace(/[^ก-๙a-zA-Z0-9\-\s]/g, '');
+      setFormData(prev => ({
+        ...prev,
+        [name]: validInput
+      }));
+    } else {
+      setFormData(prev => ({
+        ...prev,
+        [name]: value
+      }));
+    }
+  };
+
+  const handleSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    
+    // Clear previous validation errors
+    setValidationErrors({ mainDriverId: false });
+    
+    // Validation with auto focus
+    if (!formData.licensePlate.trim()) {
+      showSnackbar('กรุณากรอกทะเบียนรถ', 'error');
+      setTimeout(() => {
+        if (licensePlateRef.current) {
+          const input = licensePlateRef.current.querySelector('input');
+          if (input) input.focus();
+        }
+      }, 100);
+      return;
+    }
+
+    // ตรวจสอบรูปแบบทะเบียนรถ
+    if (!licensePlateFormatValid) {
+      showSnackbar('รูปแบบทะเบียนรถไม่ถูกต้อง (เช่น กข-1234, 1กก-1234)', 'error');
+      setTimeout(() => {
+        if (licensePlateRef.current) {
+          const input = licensePlateRef.current.querySelector('input');
+          if (input) input.focus();
+        }
+      }, 100);
+      return;
+    }
+
+    // ตรวจสอบทะเบียนรถซ้ำ
+    if (licensePlateExists) {
+      showSnackbar('ทะเบียนรถนี้มีอยู่ในระบบแล้ว', 'error');
+      setTimeout(() => {
+        if (licensePlateRef.current) {
+          const input = licensePlateRef.current.querySelector('input');
+          if (input) input.focus();
+        }
+      }, 100);
+      return;
+    }
+
+    if (!formData.carBrand.trim()) {
+      showSnackbar('กรุณาเลือกยี่ห้อรถ', 'error');
+      setTimeout(() => {
+        if (brandRef.current) {
+          const input = brandRef.current.querySelector('input, [role="combobox"]') as HTMLElement;
+          if (input) input.focus();
+        }
+      }, 100);
+      return;
+    }
+
+
+
+    if (!formData.vehicleType.trim()) {
+      showSnackbar('กรุณาเลือกประเภทรถ', 'error');
+      setTimeout(() => {
+        if (vehicleTypeRef.current) {
+          const input = vehicleTypeRef.current.querySelector('input, [role="combobox"]') as HTMLElement;
+          if (input) input.focus();
+        }
+      }, 100);
+      return;
+    }
+
+    // ตรวจสอบคนขับหลัก (จำเป็นต้องระบุ)
+    if (!formData.mainDriverId.trim()) {
+      showSnackbar('กรุณาเลือกคนขับหลัก', 'error');
+      setValidationErrors(prev => ({ ...prev, mainDriverId: true }));
+      setTimeout(() => {
+        if (mainDriverRef.current) {
+          const input = mainDriverRef.current.querySelector('[role="combobox"]') as HTMLElement;
+          if (input) input.focus();
+        }
+      }, 100);
+      return;
+    }
+    
+    // ตรวจสอบทะเบียนรถซ้ำก่อนส่ง
+    if (licensePlateExists) {
+      showSnackbar('ไม่สามารถเพิ่มรถได้ เนื่องจากทะเบียนรถนี้มีอยู่ในระบบแล้ว', 'error');
+      setTimeout(() => {
+        if (licensePlateRef.current) {
+          const input = licensePlateRef.current.querySelector('input');
+          if (input) input.focus();
+        }
+      }, 100);
+      return;
+    }
+    
+    setLoading(true);
+
+    try {
+      // อัปโหลดรูปภาพรถ (ถ้ามี)
+      let carImageUrl = formData.carImage;
+
+      // อัปโหลดรูปรถ
+      if (carImageFile) {
+        try {
+          carImageUrl = await uploadImageFile(carImageFile, 'car');
+          console.log('✅ Car image uploaded:', carImageUrl);
+          // อัปเดต formData ให้ใช้ URL จริงแทน preview URL
+          setFormData(prev => ({ ...prev, carImage: carImageUrl }));
+        } catch (error) {
+          console.error('Error uploading car image:', error);
+          showSnackbar('เกิดข้อผิดพลาดในการอัปโหลดรูปรถ', 'error');
+          setLoading(false);
+          return;
+        }
+      }
+
+      // เตรียมข้อมูลที่จะส่ง
+      const vehicleData = {
+        ...formData,
+        brand: formData.carBrand,
+        model: formData.carModel,
+        weight: formData.weight ? parseFloat(formData.weight) : null,
+        fuelTank: formData.fuelTank ? parseFloat(formData.fuelTank) : null,
+        fuelConsume: formData.fuelConsume ? parseFloat(formData.fuelConsume) : null,
+        fuelConsumeMth: formData.fuelConsumeMth ? parseFloat(formData.fuelConsumeMth) : null,
+        carImage: carImageUrl,
+        // ส่ง driver IDs แทนข้อมูลโดยตรง
+        mainDriverId: formData.mainDriverId ? parseInt(formData.mainDriverId) : null,
+        backupDriverId: formData.backupDriverId ? parseInt(formData.backupDriverId) : null,
+      };
+
+      console.log('Sending vehicle data with drivers:', {
+        licensePlate: vehicleData.licensePlate,
+        mainDriverId: vehicleData.mainDriverId,
+        backupDriverId: vehicleData.backupDriverId,
+        mainDriverName: formData.mainDriverId ? drivers.find(d => d.id.toString() === formData.mainDriverId)?.driverName : null,
+        backupDriverName: formData.backupDriverId ? drivers.find(d => d.id.toString() === formData.backupDriverId)?.driverName : null,
+      });
+
+      // ส่งข้อมูลไปยัง API
+      const response = await fetch('/api/vehicles', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify(vehicleData),
+      });
+
+      const result = await response.json();
+
+      if (response.ok) {
+        showSnackbar('เพิ่มข้อมูลรถสำเร็จ!', 'success');
+        router.push('/vehicles');
+      } else {
+        showSnackbar(result.error || 'เกิดข้อผิดพลาดในการเพิ่มข้อมูล', 'error');
+      }
+    } catch (error) {
+      console.error('Error:', error);
+      showSnackbar('เกิดข้อผิดพลาดในการเชื่อมต่อ', 'error');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleReset = () => {
+    setFormData({
+      licensePlate: '',
+      carBrand: '',
+      carModel: '',
+      color: '',
+      weight: '',
+      fuelTank: '',
+      fuelConsume: '',
+      fuelConsumeMth: '',
+      vehicleType: '',
+      // คนขับ (ใช้ ID)
+      mainDriverId: '',
+      backupDriverId: '',
+      // อื่นๆ
+      remark: '',
+      carImage: '',
+    });
+    
+    // รีเซ็ตไฟล์ที่เลือก
+    setCarImageFile(null);
+    
+    // Clear validation errors
+    setValidationErrors({ mainDriverId: false });
+  };
+
+  return (
+    <Layout showSidebar={false}>
+      <Box>
+        {/* Header */}
+        <Box sx={{ 
+            display: 'flex', 
+            justifyContent: 'space-between', 
+            alignItems: 'center', 
+            mb: 3,
+            flexDirection: { xs: 'column', sm: 'row' },
+            gap: 2
+          }}>
+            <Box sx={{ display: 'flex', alignItems: 'center', gap: 2 }}>
+              <DirectionsCarIcon sx={{ fontSize: 32, color: 'primary.main' }} />
+              <Typography variant="h5" sx={{ fontWeight: 600 }}>
+                เพิ่มข้อมูลรถใหม่
+              </Typography>
+            </Box>
+            
+            <Button
+              variant="outlined"
+              startIcon={<BackIcon />}
+              href="/vehicles"
+              sx={{ borderRadius: 2 }}
+            >
+              กลับ
+            </Button>
+          </Box>
+
+
+
+        {/* Form */}
+        <Paper elevation={2} sx={{ p: { xs: 2, md: 3 } }}>
+          <form onSubmit={handleSubmit}>
+            {/* ข้อมูลรถ */}
+            <Typography variant="h6" sx={{ mb: 2, color: 'primary.main', fontSize: '1.1rem' }}>
+              📋 ข้อมูลรถ
+            </Typography>
+            
+            <Box sx={{ mb: 3 }}>
+              {/* แถวที่ 1: ทะเบียน + ประเภท + ยี่ห้อ */}
+              <Box sx={{ display: 'grid', gridTemplateColumns: { xs: '1fr', sm: '1fr 1fr', md: '1fr 1fr 1fr' }, gap: 1.5, mb: 2 }}>
+                <Box ref={licensePlateRef}>
+                  <TextField
+                    fullWidth
+                    required
+                    label="ทะเบียนรถ"
+                    name="licensePlate"
+                    value={formData.licensePlate}
+                    onChange={handleChange}
+                    placeholder="เช่น กข-1234, abc-1234, 12-3456"
+                    autoFocus
+                    size="small"
+                    error={licensePlateExists || !licensePlateFormatValid}
+                    helperText={
+                      checkingLicense ? 'กำลังตรวจสอบ...' :
+                      !licensePlateFormatValid && formData.licensePlate ? 'รูปแบบทะเบียนรถไม่ถูกต้อง (เช่น กข-1234, 12-3456)' :
+                      licensePlateExists ? 'ทะเบียนรถนี้มีอยู่ในระบบแล้ว' :
+                      formData.licensePlate && licensePlateFormatValid ? 'ทะเบียนรถนี้ใช้ได้' : 
+                      'รูปแบบ: เช่น กข-1234, 1กก-3456'
+                    }
+                    InputProps={{
+                      endAdornment: checkingLicense ? (
+                        <CircularProgress size={16} />
+                      ) : licensePlateExists || !licensePlateFormatValid ? (
+                        <ErrorIcon color="error" sx={{ fontSize: 20 }} />
+                      ) : formData.licensePlate && licensePlateFormatValid ? (
+                        <CheckCircleIcon color="success" sx={{ fontSize: 20 }} />
+                      ) : null
+                    }}
+                  />
+                </Box>
+                <Box ref={vehicleTypeRef}>
+                  <FormControl fullWidth required size="small">
+                    <InputLabel>ประเภทรถ</InputLabel>
+                    <Select
+                      name="vehicleType"
+                      value={formData.vehicleType}
+                      onChange={(e) => setFormData(prev => ({ ...prev, vehicleType: e.target.value }))}
+                      label="ประเภทรถ"
+                    >
+                      {CAR_TYPES.map((type) => (
+                        <MenuItem key={type.value} value={type.value}>
+                          {type.label}
+                        </MenuItem>
+                      ))}
+                    </Select>
+                  </FormControl>
+                </Box>
+                <Box ref={brandRef}>
+                  <FormControl fullWidth required size="small">
+                    <InputLabel>ยี่ห้อรถ</InputLabel>
+                    <Select
+                      name="carBrand"
+                      value={formData.carBrand}
+                      onChange={(e) => setFormData(prev => ({ ...prev, carBrand: e.target.value }))}
+                      label="ยี่ห้อรถ"
+                    >
+                      {CAR_BRANDS.map((brand) => (
+                        <MenuItem key={brand.value} value={brand.value}>
+                          {brand.value} ({brand.label})
+                        </MenuItem>
+                      ))}
+                    </Select>
+                  </FormControl>
+                </Box>
+              </Box>
+              
+              {/* แถวที่ 2: รุ่นรถ + สีรถ */}
+              <Box sx={{ display: 'grid', gridTemplateColumns: { xs: '1fr', sm: '1fr 1fr', md: '1fr 1fr 1fr ', lg: '1fr 1fr 1fr 1fr 1fr' }, gap: 1.5, mb: 2 }}>
+                <Box ref={modelRef}>
+                  <TextField
+                    fullWidth
+                    label="รุ่นรถ"
+                    name="carModel"
+                    value={formData.carModel}
+                    onChange={handleChange}
+                    placeholder="ระบุรุ่นรถ (ไม่บังคับ)"
+                    size="small"
+                  />
+                </Box>
+                <ColorPickerCompact
+                  label="สีรถ"
+                  value={formData.color}
+                  onChange={(color) => setFormData(prev => ({ ...prev, color }))}
+                  size="small"
+                />
+                <TextField
+                  fullWidth
+                  label="น้ำหนัก (กก.)"
+                  name="weight"
+                  type="number"
+                  value={formData.weight}
+                  onChange={handleChange}
+                  inputProps={{ step: "0.01", min: "0" }}
+                  size="small"
+                />
+                <TextField
+                  fullWidth
+                  label="ถังน้ำมัน (ลิตร)"
+                  name="fuelTank"
+                  type="number"
+                  value={formData.fuelTank}
+                  onChange={handleChange}
+                  inputProps={{ step: "0.01", min: "0" }}
+                  size="small"
+                />
+                <TextField
+                  fullWidth
+                  label="อัตราใช้น้ำมัน (กม./ลิตร)"
+                  name="fuelConsume"
+                  type="number"
+                  value={formData.fuelConsume}
+                  onChange={handleChange}
+                  inputProps={{ step: "0.01", min: "0" }}
+                  size="small"
+                />
+              </Box>
+
+            </Box>
+
+            <Divider sx={{ my: 3 }} />
+
+            {/* ข้อมูลคนขับ */}
+            <Typography variant="h6" sx={{ mb: 2, color: 'primary.main', fontSize: '1.1rem' }}>
+              👤 ข้อมูลคนขับ
+            </Typography>
+            
+            <Box sx={{ mb: 3 }}>
+              {/* คนขับหลัก */}
+              <Typography variant="subtitle2" sx={{ mb: 1, color: 'text.secondary' }}>
+                คนขับหลัก *
+              </Typography>
+              <Box sx={{ mb: 2 }} ref={mainDriverRef}>
+                <FormControl 
+                  fullWidth 
+                  size="small" 
+                  required 
+                  error={validationErrors.mainDriverId}
+                >
+                  <InputLabel>เลือกคนขับหลัก</InputLabel>
+                  <Select
+                    name="mainDriverId"
+                    value={formData.mainDriverId}
+                    label="เลือกคนขับหลัก *"
+                    onChange={(e) => {
+                      handleChange(e);
+                      // Clear error when user selects a driver
+                      if (e.target.value && validationErrors.mainDriverId) {
+                        setValidationErrors(prev => ({ ...prev, mainDriverId: false }));
+                      }
+                    }}
+                    disabled={loadingDrivers}
+                    required
+                  >
+                    <MenuItem value="">
+                      <em>เลือกคนขับหลัก</em>
+                    </MenuItem>
+                    {drivers.map((driver) => (
+                      <MenuItem 
+                        key={driver.id} 
+                        value={driver.id.toString()}
+                        disabled={driver.id.toString() === formData.backupDriverId}
+                      >
+                        <Box sx={{ display: 'flex', alignItems: 'center', gap: 2 }}>
+                          <Avatar 
+                            src={getDriverImageUrl(driver.driverImage)} 
+                            sx={{ 
+                              width: 32, 
+                              height: 32,
+                              bgcolor: driver.driverImage ? 'transparent' : 'primary.main',
+                              color: 'white',
+                              fontSize: '0.875rem',
+                              fontWeight: 'bold'
+                            }}
+                          >
+                            {getDriverInitials(driver.driverName)}
+                          </Avatar>
+                          <Box>
+                            <Typography variant="body2">{driver.driverName}</Typography>
+                            <Typography variant="caption" color="text.secondary">
+                              ({driver.driverLicense})
+                            </Typography>
+                          </Box>
+                        </Box>
+                      </MenuItem>
+                    ))}
+                  </Select>
+                  {validationErrors.mainDriverId && (
+                    <FormHelperText>กรุณาเลือกคนขับหลัก</FormHelperText>
+                  )}
+                </FormControl>
+              </Box>
+              
+              {/* คนขับรอง */}
+              <Typography variant="subtitle2" sx={{ mb: 1, color: 'text.secondary' }}>
+                คนขับรอง (ไม่บังคับ)
+              </Typography>
+              <Box>
+                <FormControl fullWidth size="small">
+                  <InputLabel>เลือกคนขับรอง</InputLabel>
+                  <Select
+                    name="backupDriverId"
+                    value={formData.backupDriverId}
+                    label="เลือกคนขับรอง"
+                    onChange={handleChange}
+                    disabled={loadingDrivers}
+                  >
+                    <MenuItem value="">
+                      <em>ไม่ระบุคนขับรอง</em>
+                    </MenuItem>
+                    {drivers.map((driver) => (
+                      <MenuItem 
+                        key={driver.id} 
+                        value={driver.id.toString()}
+                        disabled={driver.id.toString() === formData.mainDriverId}
+                      >
+                        <Box sx={{ display: 'flex', alignItems: 'center', gap: 2 }}>
+                          <Avatar 
+                            src={getDriverImageUrl(driver.driverImage)} 
+                            sx={{ 
+                              width: 32, 
+                              height: 32,
+                              bgcolor: driver.driverImage ? 'transparent' : 'secondary.main',
+                              color: 'white',
+                              fontSize: '0.875rem',
+                              fontWeight: 'bold'
+                            }}
+                          >
+                            {getDriverInitials(driver.driverName)}
+                          </Avatar>
+                          <Box>
+                            <Typography variant="body2">{driver.driverName}</Typography>
+                            <Typography variant="caption" color="text.secondary">
+                              ({driver.driverLicense})
+                            </Typography>
+                          </Box>
+                        </Box>
+                      </MenuItem>
+                    ))}
+                  </Select>
+                </FormControl>
+              </Box>
+              
+              {/* แสดงข้อมูลคนขับที่เลือก */}
+              {(formData.mainDriverId || formData.backupDriverId) && (
+                <Box sx={{ mt: 3, p: 2, bgcolor: 'grey.50', borderRadius: 2 }}>
+                  <Typography variant="subtitle2" sx={{ mb: 2, color: 'text.secondary' }}>
+                    คนขับที่เลือก
+                  </Typography>
+                  
+                  {/* คนขับหลักที่เลือก */}
+                  {formData.mainDriverId && (
+                    <Box sx={{ mb: 2 }}>
+                      {(() => {
+                        const selectedDriver = drivers.find(d => d.id.toString() === formData.mainDriverId);
+                        return selectedDriver ? (
+                          <Box sx={{ display: 'flex', alignItems: 'center', gap: 2 }}>
+                            <Avatar 
+                              src={getDriverImageUrl(selectedDriver.driverImage)} 
+                              sx={{ 
+                                width: 48, 
+                                height: 48,
+                                bgcolor: selectedDriver.driverImage ? 'transparent' : 'primary.main',
+                                color: 'white',
+                                fontSize: '1rem',
+                                fontWeight: 'bold'
+                              }}
+                            >
+                              {getDriverInitials(selectedDriver.driverName)}
+                            </Avatar>
+                            <Box>
+                              <Typography variant="body2" fontWeight="bold">
+                                คนขับหลัก: {selectedDriver.driverName}
+                              </Typography>
+                              <Typography variant="caption" color="text.secondary">
+                                ใบขับขี่: {selectedDriver.driverLicense}
+                              </Typography>
+                            </Box>
+                          </Box>
+                        ) : null;
+                      })()}
+                    </Box>
+                  )}
+                  
+                  {/* คนขับรองที่เลือก */}
+                  {formData.backupDriverId && (
+                    <Box>
+                      {(() => {
+                        const selectedDriver = drivers.find(d => d.id.toString() === formData.backupDriverId);
+                        return selectedDriver ? (
+                          <Box sx={{ display: 'flex', alignItems: 'center', gap: 2 }}>
+                            <Avatar 
+                              src={getDriverImageUrl(selectedDriver.driverImage)} 
+                              sx={{ 
+                                width: 48, 
+                                height: 48,
+                                bgcolor: selectedDriver.driverImage ? 'transparent' : 'secondary.main',
+                                color: 'white',
+                                fontSize: '1rem',
+                                fontWeight: 'bold'
+                              }}
+                            >
+                              {getDriverInitials(selectedDriver.driverName)}
+                            </Avatar>
+                            <Box>
+                              <Typography variant="body2" fontWeight="bold">
+                                คนขับรอง: {selectedDriver.driverName}
+                              </Typography>
+                              <Typography variant="caption" color="text.secondary">
+                                ใบขับขี่: {selectedDriver.driverLicense}
+                              </Typography>
+                            </Box>
+                          </Box>
+                        ) : null;
+                      })()}
+                    </Box>
+                  )}
+                </Box>
+              )}
+            </Box>
+
+            <Divider sx={{ my: 3 }} />
+
+            {/* รูปภาพและหมายเหตุ */}
+            <Typography variant="h6" sx={{ mb: 2, color: 'primary.main', fontSize: '1.1rem' }}>
+              📷 รูปภาพและหมายเหตุ
+            </Typography>
+            
+            <Box sx={{ mb: 3 }}>
+              {/* รูปภาพรถ */}
+              <Box sx={{ mb: 2 }}>
+                <ImageUploadDeferred
+                  type="car"
+                  value={formData.carImage}
+                  onChange={(file, previewUrl) => {
+                    setCarImageFile(file);
+                    if (previewUrl) {
+                      setFormData(prev => ({ ...prev, carImage: previewUrl }));
+                    }
+                  }}
+                  label="รูปภาพรถ"
+                  disabled={loading}
+                />
+              </Box>
+              
+              {/* หมายเหตุ */}
+              <TextField
+                fullWidth
+                label="หมายเหตุ"
+                name="remark"
+                value={formData.remark}
+                onChange={handleChange}
+                multiline
+                rows={2}
+                placeholder="ระบุหมายเหตุเพิ่มเติม (ไม่บังคับ)"
+                size="small"
+              />
+            </Box>
+
+            {/* Buttons */}
+            <Box sx={{ 
+                display: 'flex', 
+                gap: 1.5, 
+                justifyContent: { xs: 'stretch', sm: 'flex-end' },
+                mt: 3,
+                pt: 2,
+                borderTop: '1px solid',
+                borderColor: 'divider',
+                flexDirection: { xs: 'column', sm: 'row' }
+              }}>
+              <Button
+                variant="outlined"
+                onClick={handleReset}
+                disabled={loading}
+                size="medium"
+                sx={{ minWidth: { sm: '120px' } }}
+              >
+                ยกเลิก
+              </Button>
+              <Button
+                type="submit"
+                variant="contained"
+                startIcon={loading ? <CircularProgress size={18} /> : <Save />}
+                disabled={loading || licensePlateExists || checkingLicense || !licensePlateFormatValid}
+                size="medium"
+                sx={{ minWidth: { sm: '140px' } }}
+              >
+                {loading ? 'กำลังบันทึก...' : 
+                 !licensePlateFormatValid && formData.licensePlate ? 'รูปแบบทะเบียนไม่ถูกต้อง' :
+                 licensePlateExists ? 'ทะเบียนรถซ้ำ' :
+                 checkingLicense ? 'กำลังตรวจสอบ...' :
+                 'บันทึกข้อมูล'}
+              </Button>
+            </Box>
+          </form>
+        </Paper>
+      </Box>
+    </Layout>
+  );
+}
+
+export default function AddCarPage() {
+  return <AddCarPageContent />;
+}

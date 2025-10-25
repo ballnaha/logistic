@@ -1,27 +1,136 @@
-:root {
-  --background: #ffffff;
-  --foreground: #171717;
+/* Import Leaflet CSS - must come before other rules */
+@import 'leaflet/dist/leaflet.css';
+
+/* Import Local Sarabun Fonts */
+@font-face {
+  font-family: 'Sarabun';
+  src: url('/fonts/Sarabun-Regular.ttf') format('truetype');
+  font-weight: 400;
+  font-style: normal;
+  font-display: swap;
 }
 
-@media (prefers-color-scheme: dark) {
-  :root {
-    --background: #0a0a0a;
-    --foreground: #ededed;
+@font-face {
+  font-family: 'Sarabun';
+  src: url('/fonts/Sarabun-Medium.ttf') format('truetype');
+  font-weight: 500;
+  font-style: normal;
+  font-display: swap;
+}
+
+@font-face {
+  font-family: 'Sarabun';
+  src: url('/fonts/Sarabun-SemiBold.ttf') format('truetype');
+  font-weight: 600;
+  font-style: normal;
+  font-display: swap;
+}
+
+@font-face {
+  font-family: 'Sarabun';
+  src: url('/fonts/Sarabun-Bold.ttf') format('truetype');
+  font-weight: 700;
+  font-style: normal;
+  font-display: swap;
+}
+
+@font-face {
+  font-family: 'Sarabun';
+  src: url('/fonts/Sarabun-Italic.ttf') format('truetype');
+  font-weight: 400;
+  font-style: italic;
+  font-display: swap;
+}
+
+@font-face {
+  font-family: 'Sarabun';
+  src: url('/fonts/Sarabun-MediumItalic.ttf') format('truetype');
+  font-weight: 500;
+  font-style: italic;
+  font-display: swap;
+}
+
+@font-face {
+  font-family: 'Sarabun';
+  src: url('/fonts/Sarabun-SemiBoldItalic.ttf') format('truetype');
+  font-weight: 600;
+  font-style: italic;
+  font-display: swap;
+}
+
+@font-face {
+  font-family: 'Sarabun';
+  src: url('/fonts/Sarabun-BoldItalic.ttf') format('truetype');
+  font-weight: 700;
+  font-style: italic;
+  font-display: swap;
+}
+
+/* Sarabun Font Classes */
+.font-sarabun {
+  font-family: 'Sarabun', Arial, sans-serif;
+}
+
+.font-sarabun-regular {
+  font-family: 'Sarabun', Arial, sans-serif;
+  font-weight: 400;
+}
+
+.font-sarabun-medium {
+  font-family: 'Sarabun', Arial, sans-serif;
+  font-weight: 500;
+}
+
+.font-sarabun-semibold {
+  font-family: 'Sarabun', Arial, sans-serif;
+  font-weight: 600;
+}
+
+.font-sarabun-bold {
+  font-family: 'Sarabun', Arial, sans-serif;
+  font-weight: 700;
+}
+
+/* Custom animations for map */
+@keyframes dash {
+  from {
+    stroke-dashoffset: 50;
+  }
+  to {
+    stroke-dashoffset: 0;
   }
 }
 
-html,
-body {
-  max-width: 100vw;
-  overflow-x: hidden;
+.animated-line {
+  animation: dash 2s linear infinite;
 }
 
-body {
-  color: var(--foreground);
-  background: var(--background);
-  font-family: Arial, Helvetica, sans-serif;
-  -webkit-font-smoothing: antialiased;
-  -moz-osx-font-smoothing: grayscale;
+/* Custom marker hover effects */
+.custom-marker-company:hover,
+.custom-marker-customer:hover {
+  transform: scale(1.1);
+  transition: transform 0.2s ease;
+}
+
+/* Leaflet popup customization */
+.leaflet-popup-content-wrapper {
+  border-radius: 6px !important;
+  box-shadow: 0 2px 8px rgba(0,0,0,0.12) !important;
+}
+
+.leaflet-popup-tip {
+  box-shadow: 0 1px 3px rgba(0,0,0,0.1) !important;
+}
+
+/* Minimal popup style */
+.minimal-popup .leaflet-popup-content-wrapper {
+  border-radius: 4px !important;
+  box-shadow: 0 1px 4px rgba(0,0,0,0.1) !important;
+  padding: 2px !important;
+}
+
+.minimal-popup .leaflet-popup-content {
+  margin: 4px !important;
 }
 
 * {
@@ -30,13 +139,60 @@ body {
   margin: 0;
 }
 
+html,
+body {
+  max-width: 100vw;
+  overflow-x: hidden;
+  font-family: 'Prompt', 'Roboto', 'Helvetica', 'Arial', sans-serif;
+  background-color: #f5f7fa;
+}
+
+body {
+  color: #1a1a1a;
+  background: #f5f7fa;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
 a {
   color: inherit;
   text-decoration: none;
 }
 
-@media (prefers-color-scheme: dark) {
-  html {
-    color-scheme: dark;
-  }
+/* Scrollbar Styling */
+::-webkit-scrollbar {
+  width: 6px;
 }
+
+::-webkit-scrollbar-track {
+  background: #f1f1f1;
+}
+
+::-webkit-scrollbar-thumb {
+  background: #c1c1c1;
+  border-radius: 3px;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: #a1a1a1;
+}
+
+/* Disable number input scroll arrows and wheel behavior */
+input[type="number"]::-webkit-outer-spin-button,
+input[type="number"]::-webkit-inner-spin-button {
+  -webkit-appearance: none;
+  margin: 0;
+}
+
+/* Firefox */
+input[type="number"] {
+  appearance: textfield;
+  -moz-appearance: textfield;
+}
+
+/* Prevent scroll wheel on focused number inputs */
+input[type="number"]:focus {
+  appearance: textfield;
+  -moz-appearance: textfield;
+}
+

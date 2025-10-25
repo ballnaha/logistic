@@ -1,0 +1,221 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "mysql"
+  url      = env("MYSQL_DATABASE_URL")
+}
+
+model User {
+  id        Int       @id @default(autoincrement())
+  username  String    @unique @db.VarChar(50)
+  password  String    @db.VarChar(255)
+  email     String?   @db.VarChar(100)
+  firstName String?   @map("first_name") @db.VarChar(50)
+  lastName  String?   @map("last_name") @db.VarChar(50)
+  role      String    @default("user") @db.VarChar(20)
+  isActive  Boolean   @default(true) @map("is_active")
+  createdAt DateTime  @default(now()) @map("created_at")
+  updatedAt DateTime  @updatedAt @map("updated_at")
+  lastLogin DateTime? @map("last_login")
+  vehicles  Vehicle[]
+
+  @@map("users")
+}
+
+model Driver {
+  id                   Int       @id @default(autoincrement())
+  driverName           String    @map("driver_name") @db.VarChar(100)
+  driverLicense        String    @unique @map("driver_license") @db.VarChar(50)
+  driverImage          String?   @map("driver_image") @db.VarChar(255)
+  phone                String?   @map("phone") @db.VarChar(20)
+  remark               String?   @map("remark") @db.Text
+  isActive             Boolean   @default(true) @map("is_active")
+  createdAt            DateTime  @default(now()) @map("created_at")
+  updatedAt            DateTime  @updatedAt @map("updated_at")
+  createdBy            String?   @map("created_by") @db.VarChar(50)
+  updatedBy            String?   @map("updated_by") @db.VarChar(50)
+  backupDriverVehicles Vehicle[] @relation("BackupDriverVehicles")
+  mainDriverVehicles   Vehicle[] @relation("MainDriverVehicles")
+
+  @@map("drivers")
+}
+
+model Vehicle {
+  id             Int          @id @default(autoincrement()) @map("car_id")
+  licensePlate   String?      @map("license_plate") @db.VarChar(20)
+  brand          String       @map("car_brand") @db.VarChar(250)
+  model          String?      @map("car_model") @db.VarChar(250)
+  color          String?      @map("car_color") @db.VarChar(100)
+  weight         Decimal?     @map("car_weight") @db.Decimal(8, 2)
+  fuelTank       Decimal?     @map("car_fuel_tank") @db.Decimal(8, 2)
+  fuelConsume    Decimal?     @map("fuel_consume") @db.Decimal(6, 2)
+  fuelConsumeMth Decimal?     @map("fuel_comsume_mth") @db.Decimal(10, 2)
+  vehicleType    String       @map("car_type") @db.VarChar(100)
+  remark         String?      @map("car_remark") @db.Text
+  carImage       String?      @map("car_image") @db.VarChar(255)
+  ownerId        Int          @map("owner_id")
+  isActive       Boolean      @default(true) @map("is_active")
+  createdAt      DateTime     @default(now()) @map("created_at")
+  updatedAt      DateTime     @updatedAt @map("updated_at")
+  createdBy      String?      @map("created_by") @db.VarChar(50)
+  updatedBy      String?      @map("updated_by") @db.VarChar(50)
+  backupDriverId Int?         @map("backup_driver_id")
+  mainDriverId   Int?         @map("main_driver_id")
+  fuelRecords    FuelRecord[]
+  tripRecords    TripRecord[]
+  backupDriver   Driver?      @relation("BackupDriverVehicles", fields: [backupDriverId], references: [id])
+  mainDriver     Driver?      @relation("MainDriverVehicles", fields: [mainDriverId], references: [id])
+  owner          User         @relation(fields: [ownerId], references: [id], onDelete: Cascade)
+
+  @@index([backupDriverId], map: "vehicles_backup_driver_id_fkey")
+  @@index([mainDriverId], map: "vehicles_main_driver_id_fkey")
+  @@index([ownerId], map: "vehicles_owner_id_fkey")
+  @@map("vehicles")
+}
+
+model FuelRecord {
+  id            Int      @id @default(autoincrement())
+  vehicleId     Int      @map("vehicle_id")
+  fuelDate      DateTime @map("fuel_date")
+  fuelAmount    Decimal  @map("fuel_amount") @db.Decimal(8, 2)
+  odometer      Int?     @map("odometer")
+  remark        String?  @map("remark") @db.Text
+  createdAt     DateTime @default(now()) @map("created_at")
+  updatedAt     DateTime @updatedAt @map("updated_at")
+  createdBy     String?  @map("created_by") @db.VarChar(50)
+  updatedBy     String?  @map("updated_by") @db.VarChar(50)
+  driverName    String?  @map("driver_name") @db.VarChar(100)
+  driverType    String?  @map("driver_type") @db.VarChar(10)
+  driverLicense String?  @map("driver_license") @db.VarChar(50)
+  vehicle       Vehicle  @relation(fields: [vehicleId], references: [id], onDelete: Cascade)
+
+  @@index([vehicleId], map: "fuel_records_vehicle_id_fkey")
+  @@map("fuel_records")
+}
+
+model Customer {
+  id          Int          @id @default(autoincrement())
+  cmCode      String       @unique @map("cm_code") @db.VarChar(50)
+  cmName      String       @map("cm_name") @db.VarChar(255)
+  cmAddress   String?      @map("cm_address") @db.Text
+  cmPhone     String?      @map("cm_phone") @db.VarChar(20)
+  cmSalesname String?      @map("cm_salesname") @db.VarChar(100)
+  cmMileage   Decimal?     @map("cm_mileage") @db.Decimal(10, 2)
+  cmRemark    String?      @map("cm_remark") @db.Text
+  lat         Decimal?     @map("lat") @db.Decimal(10, 8)
+  long        Decimal?     @map("long") @db.Decimal(11, 8)
+  createdAt   DateTime     @default(now()) @map("created_at")
+  updatedAt   DateTime     @updatedAt @map("updated_at")
+  createdBy   String?      @map("created_by") @db.VarChar(50)
+  updatedBy   String?      @map("updated_by") @db.VarChar(50)
+  isActive    Boolean      @default(true) @map("is_active")
+  tripRecords TripRecord[]
+
+  @@map("customers")
+}
+
+model Item {
+  id        Int        @id @default(autoincrement())
+  ptPart    String     @unique @map("pt_part") @db.VarChar(100)
+  ptDesc1   String     @map("pt_desc1") @db.VarChar(255)
+  ptDesc2   String?    @map("pt_desc2") @db.VarChar(255)
+  ptUm      String     @map("pt_um") @db.VarChar(20)
+  ptPrice   Decimal?   @map("pt_price") @db.Decimal(15, 4)
+  createdAt DateTime   @default(now()) @map("created_at")
+  updatedAt DateTime   @updatedAt @map("updated_at")
+  createdBy String?    @map("created_by") @db.VarChar(50)
+  updatedBy String?    @map("updated_by") @db.VarChar(50)
+  isActive  Boolean    @default(true) @map("is_active")
+  tripItems TripItem[]
+
+  @@map("items")
+}
+
+model TripRecord {
+  id                Int        @id @default(autoincrement())
+  vehicleId         Int        @map("vehicle_id")
+  customerId        Int        @map("customer_id")
+  departureDate     DateTime   @map("departure_date")
+  departureTime     String     @map("departure_time") @db.VarChar(10)
+  returnDate        DateTime?  @map("return_date")
+  returnTime        String?    @map("return_time") @db.VarChar(10)
+  days              Int        @map("days")
+  allowanceRate     Decimal    @map("allowance_rate") @db.Decimal(8, 2)
+  totalAllowance    Decimal    @map("total_allowance") @db.Decimal(10, 2)
+  remark            String?    @map("remark") @db.Text
+  createdAt         DateTime   @default(now()) @map("created_at")
+  updatedAt         DateTime   @updatedAt @map("updated_at")
+  createdBy         String?    @map("created_by") @db.VarChar(50)
+  updatedBy         String?    @map("updated_by") @db.VarChar(50)
+  actualDistance    Decimal?   @map("actual_distance") @db.Decimal(10, 2)
+  estimatedDistance Decimal    @map("estimated_distance") @db.Decimal(10, 2)
+  driverType        String?    @map("driver_type") @db.VarChar(10)
+  driverName        String?    @map("driver_name") @db.VarChar(100)
+  odometerAfter     Int?       @map("odometer_after")
+  odometerBefore    Int?       @map("odometer_before")
+  distanceCheckFee  Decimal?   @map("distance_check_fee") @db.Decimal(10, 2)
+  fuelCost          Decimal?   @map("fuel_cost") @db.Decimal(10, 2)
+  loadingDate       DateTime?  @map("loading_date")
+  repairCost        Decimal?   @map("repair_cost") @db.Decimal(10, 2)
+  tollFee           Decimal?   @map("toll_fee") @db.Decimal(10, 2)
+  documentNumber    String?    @map("document_number") @db.VarChar(100)
+  driverLicense     String?    @map("driver_license") @db.VarChar(50)
+  tripItems         TripItem[]
+  customer          Customer   @relation(fields: [customerId], references: [id], onDelete: Cascade)
+  vehicle           Vehicle    @relation(fields: [vehicleId], references: [id], onDelete: Cascade)
+
+  @@index([customerId], map: "trip_records_customer_id_fkey")
+  @@index([vehicleId], map: "trip_records_vehicle_id_fkey")
+  @@map("trip_records")
+}
+
+model TripItem {
+  id           Int        @id @default(autoincrement())
+  tripRecordId Int        @map("trip_record_id")
+  itemId       Int        @map("item_id")
+  quantity     Decimal    @map("quantity") @db.Decimal(10, 2)
+  unit         String     @map("unit") @db.VarChar(50)
+  remark       String?    @map("remark") @db.Text
+  createdAt    DateTime   @default(now()) @map("created_at")
+  updatedAt    DateTime   @updatedAt @map("updated_at")
+  totalPrice   Decimal?   @map("total_price") @db.Decimal(15, 2)
+  unitPrice    Decimal?   @map("unit_price") @db.Decimal(15, 4)
+  item         Item       @relation(fields: [itemId], references: [id], onDelete: Cascade)
+  tripRecord   TripRecord @relation(fields: [tripRecordId], references: [id], onDelete: Cascade)
+
+  @@index([itemId], map: "trip_items_item_id_fkey")
+  @@index([tripRecordId], map: "trip_items_trip_record_id_fkey")
+  @@map("trip_items")
+}
+
+model Evaluation {
+  id                Int      @id @default(autoincrement())
+  contractorName    String   @map("contractor_name") @db.VarChar(255)
+  vehiclePlate      String   @map("vehicle_plate") @db.VarChar(100)
+  site              String   @map("site") @db.VarChar(50)
+  driverCooperation Int      @map("driver_cooperation")
+  vehicleCondition  Int      @map("vehicle_condition")
+  damageFound       Boolean  @default(false) @map("damage_found")
+  damageValue       Decimal  @default(0.00) @map("damage_value") @db.Decimal(10, 2)
+  damageScore       Int      @default(0) @map("damage_score")
+  remark            String?  @map("remark") @db.Text
+  evaluatedBy       String   @map("evaluated_by") @db.VarChar(255)
+  evaluationDate    DateTime @map("evaluation_date")
+  createdAt         DateTime @default(now()) @map("created_at")
+  updatedAt         DateTime @updatedAt @map("updated_at")
+
+  @@map("evaluations")
+}
+
+model SystemSettings {
+  id          Int      @id @default(autoincrement())
+  settingKey  String   @unique @map("setting_key") @db.VarChar(100)
+  value       String   @map("value") @db.Text
+  description String?  @map("description") @db.VarChar(255)
+  createdAt   DateTime @default(now()) @map("created_at")
+  updatedAt   DateTime @updatedAt @map("updated_at")
+
+  @@map("system_settings")
+}
