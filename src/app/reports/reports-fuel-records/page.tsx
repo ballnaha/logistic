@@ -774,6 +774,7 @@ export default function FuelRecordsReport() {
         `;
       };
 
+      // สร้าง HTML รวมสำหรับทุกรถ
       const createAllVehicleDetailsHTML = () => {
         return `
           <div style="font-family: 'Sarabun', Arial, sans-serif; width: 900px; background: white; padding: 20px; color: black;">
@@ -785,7 +786,7 @@ export default function FuelRecordsReport() {
             ${vehicles.map((group, vehicleIndex) => {
               const vehicleTotal = group.records.reduce((sum, r) => sum + (parseFloat(r.fuelAmount.toString()) || 0), 0);
               return `
-                <div style="margin-bottom: 30px; ${vehicleIndex > 0 ? 'page-break-before: avoid;' : ''}">
+                <div class="vehicle-section" style="margin-bottom: 30px; break-inside: avoid;">
                   <h3 style="font-size: 14px; font-weight: 700; margin-bottom: 10px; color: black; background: #f0f0f0; padding: 8px;">
                     ${group.vehicle.licensePlate} - ${group.vehicle.brand} ${group.vehicle.model || ''} (${getVehicleTypeLabel(group.vehicle.vehicleType)})
                   </h3>
@@ -838,7 +839,6 @@ export default function FuelRecordsReport() {
 
       // สร้าง PDF
       const doc = new jsPDF('p', 'mm', 'a4');
-      let isFirstPage = true;
 
       // หน้าสรุป
       const summaryHTML = createVehicleSummaryHTML();
@@ -863,9 +863,12 @@ export default function FuelRecordsReport() {
       const pageHeight = 297;
       const margin = 10;
       const contentWidth = pageWidth - margin * 2;
+      const contentHeight = pageHeight - margin * 2 - 12; // เผื่อ footer
       const imgHeight = (summaryCanvas.height * contentWidth) / summaryCanvas.width;
 
-      // สร้าง detail canvas ก่อนเพื่อคำนวณจำนวนหน้า
+      doc.addImage(summaryCanvas.toDataURL('image/png'), 'PNG', margin, margin, contentWidth, imgHeight);
+
+      // สร้างรายละเอียดทั้งหมดและใช้ logic การแบ่งหน้าแบบอัจฉริยะ
       const allDetailsHTML = createAllVehicleDetailsHTML();
       const detailTempDiv = document.createElement('div');
       detailTempDiv.innerHTML = allDetailsHTML;
@@ -874,58 +877,121 @@ export default function FuelRecordsReport() {
       detailTempDiv.style.top = '0';
       document.body.appendChild(detailTempDiv);
 
-      const detailCanvas = await html2canvas(detailTempDiv, {
-        scale: 2,
-        useCORS: true,
-        backgroundColor: '#ffffff'
-      });
+      // ค้นหา vehicle sections ทั้งหมด
+      const vehicleSections = detailTempDiv.querySelectorAll('.vehicle-section');
+      
+      // สร้าง canvas แยกสำหรับแต่ละรถ
+      const vehicleCanvases = [];
+      for (let i = 0; i < vehicleSections.length; i++) {
+        const section = vehicleSections[i];
+        const sectionDiv = document.createElement('div');
+        sectionDiv.style.fontFamily = "'Sarabun', Arial, sans-serif";
+        sectionDiv.style.width = '900px';
+        sectionDiv.style.background = 'white';
+        sectionDiv.style.padding = '20px';
+        sectionDiv.style.color = 'black';
+        sectionDiv.appendChild(section.cloneNode(true));
+        
+        sectionDiv.style.position = 'absolute';
+        sectionDiv.style.left = '-9999px';
+        sectionDiv.style.top = '0';
+        document.body.appendChild(sectionDiv);
+
+        const canvas = await html2canvas(sectionDiv, {
+          scale: 2,
+          useCORS: true,
+          backgroundColor: '#ffffff'
+        });
+
+        document.body.removeChild(sectionDiv);
+        
+        vehicleCanvases.push({
+          canvas,
+          vehicle: vehicles[i].vehicle,
+          height: (canvas.height * contentWidth) / canvas.width
+        });
+      }
 
       document.body.removeChild(detailTempDiv);
 
-      const detailImgHeight = (detailCanvas.height * contentWidth) / detailCanvas.width;
-      const contentHeight = pageHeight - margin * 2;
-
-      // คำนวณจำนวนหน้าทั้งหมดก่อน
-      const totalDetailPages = Math.ceil(detailImgHeight / contentHeight);
-      const totalAllPages = totalDetailPages + 1; // +1 สำหรับหน้าสรุป
-
-      doc.addImage(summaryCanvas.toDataURL('image/png'), 'PNG', margin, margin, contentWidth, imgHeight);
-
-      // footer สำหรับหน้าสรุป
-      doc.setFontSize(8);
-      doc.text(`Print Date: ${new Date().toLocaleString('th-TH')}`, margin, pageHeight - 6);
-      doc.text(`Page 1/${totalAllPages}`, pageWidth - margin, pageHeight - 6, { align: 'right' });
-
-      // หน้ารายละเอียดทั้งหมด (ต่อกันในหน้าเดียว)
+      // แบ่งหน้าอย่างอัจฉริยะ
       doc.addPage();
-      
-      // ถ้ารายละเอียดยาวเกินหน้าเดียว ให้แบ่งหน้า
-      let renderedHeight = 0;
+      let currentPageHeight = 0;
+      let pageNumber = 2; // เริ่มที่ 2 เพราะหน้าแรกเป็นหน้าสรุป
+      const pageFooters = [
+        { page: 1, isFirst: true },
+        { page: 2, isFirst: false }
+      ]; // เก็บข้อมูล footer แต่ละหน้า
 
-      for (let page = 1; page <= totalDetailPages; page++) {
-        if (page > 1) doc.addPage();
-
-        const sY = (renderedHeight / detailImgHeight) * detailCanvas.height;
-        const sH = Math.min((contentHeight / detailImgHeight) * detailCanvas.height, detailCanvas.height - sY);
-
-        const pageCanvas = document.createElement('canvas');
-        pageCanvas.width = detailCanvas.width;
-        pageCanvas.height = sH;
-        const pctx = pageCanvas.getContext('2d');
-        if (pctx) {
-          pctx.drawImage(detailCanvas, 0, sY, detailCanvas.width, sH, 0, 0, detailCanvas.width, sH);
+      for (let i = 0; i < vehicleCanvases.length; i++) {
+        const { canvas, vehicle, height } = vehicleCanvases[i];
+        
+        // ตรวจสอบว่าถ้าเพิ่มรถนี้แล้ว จะเกินหน้าไหม
+        if (currentPageHeight + height > contentHeight && currentPageHeight > 0) {
+          // ถ้าเกิน ให้ขึ้นหน้าใหม่
+          doc.addPage();
+          pageNumber++;
+          pageFooters.push({ page: pageNumber, isFirst: false });
+          currentPageHeight = 0;
         }
-        const pageImg = pageCanvas.toDataURL('image/png');
-        const drawHeight = (sH * contentWidth) / detailCanvas.width;
 
-        doc.addImage(pageImg, 'PNG', margin, margin, contentWidth, drawHeight);
+        // ถ้ารถคันนี้เองยาวเกินหน้าเดียว ให้แบ่งเป็นหลายหน้า
+        if (height > contentHeight) {
+          const totalVehiclePages = Math.ceil(height / contentHeight);
+          let renderedHeight = 0;
+
+          for (let vehiclePage = 1; vehiclePage <= totalVehiclePages; vehiclePage++) {
+            if (vehiclePage > 1) {
+              doc.addPage();
+              pageNumber++;
+              pageFooters.push({ page: pageNumber, isFirst: false });
+            }
+
+            const sY = (renderedHeight / height) * canvas.height;
+            const sH = Math.min((contentHeight / height) * canvas.height, canvas.height - sY);
+
+            const pageCanvas = document.createElement('canvas');
+            pageCanvas.width = canvas.width;
+            pageCanvas.height = sH;
+            const pctx = pageCanvas.getContext('2d');
+            if (pctx) {
+              pctx.drawImage(canvas, 0, sY, canvas.width, sH, 0, 0, canvas.width, sH);
+            }
+            const pageImg = pageCanvas.toDataURL('image/png');
+            const drawHeight = (sH * contentWidth) / canvas.width;
+
+            doc.addImage(pageImg, 'PNG', margin, margin, contentWidth, drawHeight);
+            
+            renderedHeight += contentHeight;
+          }
+          currentPageHeight = 0; // รีเซ็ตเพราะขึ้นหน้าใหม่แล้ว
+        } else {
+          // ถ้าไม่เกิน ให้วาดในหน้าปัจจุบัน
+          doc.addImage(canvas.toDataURL('image/png'), 'PNG', margin, margin + currentPageHeight, contentWidth, height);
+          currentPageHeight += height;
+        }
+      }
+
+      // อัพเดท footer ทุกหน้าให้มีจำนวนหน้าทั้งหมดที่ถูกต้อง
+      const totalPages = pageNumber; // หน้าสุดท้ายที่สร้าง
+      
+      for (let footerInfo of pageFooters) {
+        doc.setPage(footerInfo.page);
         
-        // footer สำหรับหน้ารายละเอียด
+        // ลบ footer เก่า
+        doc.setFillColor(255, 255, 255);
+        doc.rect(margin, pageHeight - 12, contentWidth, 12, 'F');
+        
+        // ใส่ footer ใหม่
         doc.setFontSize(8);
+        doc.setTextColor(0, 0, 0);
         doc.text(`Print Date: ${new Date().toLocaleString('th-TH')}`, margin, pageHeight - 6);
-        doc.text(`Page ${page + 1}/${totalAllPages}`, pageWidth - margin, pageHeight - 6, { align: 'right' });
         
-        renderedHeight += contentHeight;
+        if (footerInfo.isFirst) {
+          doc.text(`Page ${footerInfo.page}/${totalPages}`, pageWidth - margin, pageHeight - 6, { align: 'right' });
+        } else {
+          doc.text(`Page ${footerInfo.page}/${totalPages}`, pageWidth - margin, pageHeight - 6, { align: 'right' });
+        }
       }
 
       // แสดง PDF ใน browser

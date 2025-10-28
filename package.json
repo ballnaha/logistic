@@ -13,7 +13,9 @@
     "list:vehicles": "tsx scripts/list-vehicles.ts",
     "manage:vehicles": "tsx scripts/manage-vehicles.ts",
     "create:trip-records": "tsx scripts/create-trip-records.ts",
-    "list:trip-records": "tsx scripts/list-trip-records.ts"
+    "list:trip-records": "tsx scripts/list-trip-records.ts",
+    "create:fuel-test": "tsx scripts/create-fuel-records-test.ts",
+    "clear:fuel-test": "tsx scripts/clear-fuel-records-test.ts"
   },
   "dependencies": {
     "@emotion/react": "^11.14.0",

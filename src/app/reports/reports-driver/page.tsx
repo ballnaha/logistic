@@ -1363,12 +1363,12 @@ const totalCosts = driverExpenses + companyExpenses;  // Debug: Log calculation 
         return `
           <div style="font-family: 'Sarabun', Arial, sans-serif; width: 900px; background: white; padding: 20px; color: black;">
             ${headerHTML}
-            <div style="margin-bottom: 25px;">
-              <h3 style="font-size: 14px; font-weight: 700; margin-bottom: 10px; color: black; border-bottom: 1px solid #000; padding-bottom: 3px;">
+            <div style="margin-bottom: 12px;">
+              <h3 style="font-size: 14px; font-weight: 700; margin-bottom: 8px; color: black; border-bottom: 1px solid #000; padding-bottom: 4px;">
                 ${driverIndex + 1}. ${driverName}
               </h3>
               
-              <div style="margin-bottom: 10px; padding: 8px; background-color: #f5f5f5; border-radius: 3px;">
+              <div style="margin-bottom: 8px; padding: 8px; background-color: #f5f5f5; border-radius: 3px;">
                 <div style="display: grid; grid-template-columns: repeat(4, 1fr); gap: 8px; font-size: 12px; color: black;">
                   <div>จำนวนเที่ยว: ${records.length} เที่ยว</div>
                   <div>รวมทั้งหมด: ${formatNumberForPDF(totalCosts)} บาท</div>
@@ -1393,8 +1393,8 @@ const totalCosts = driverExpenses + companyExpenses;  // Debug: Log calculation 
                   const licensePlate = record.vehicle?.licensePlate || '-';
                   
                   return `
-                    <li style="margin-bottom: 5px; border: 1px solid #ccc; padding: 5px; background: ${index % 2 === 0 ? '#fafafa' : '#f0f0f0'};">
-                      <div style="display: grid; grid-template-columns: repeat(4, 1fr); gap: 4px; font-size: 12px; line-height: 1.2;">
+                    <li style="margin-bottom: 3px; border: 1px solid #ccc; padding: 6px; background: ${index % 2 === 0 ? '#fafafa' : '#f0f0f0'};">
+                      <div style="display: grid; grid-template-columns: repeat(4, 1fr); gap: 4px; font-size: 12px; line-height: 1.3;">
                         <div><strong>วันที่:</strong> ${travelPeriod}</div>
                         <div><strong>ปลายทาง:</strong> ${destination}</div>
                         <div><strong>ทะเบียน:</strong> ${licensePlate}</div>
