@@ -8,6 +8,7 @@ export interface PDFGeneratorOptions {
   reportData?: any;
   vendorOptions?: any[];
   selectedVendor?: string;
+  selectedVehiclePlate?: string;
   selectedMonth?: string;
   selectedYear?: string;
   months?: { value: string; label: string }[];
@@ -164,6 +165,7 @@ export class EvaluationReportPDFGenerator {
         // Fetch evaluations for transaction details
         const evaluationResponse = await fetch('/api/evaluation');
         const allEvaluations = await evaluationResponse.json();
+        
         const selectedVendorData = options.vendorOptions.find(v => v.code === options.selectedVendor);
         
         // Filter evaluations by vendor, month, and year
@@ -177,7 +179,60 @@ export class EvaluationReportPDFGenerator {
                  evalYear.toString() === options.selectedYear;
         });
 
-        for (const item of options.reportData.data) {
+        // Determine which vehicles to show in detail pages
+        const vehiclesToShow = options.reportData.data;
+
+        // Add first detail page
+        pdf.addPage();
+        let currentYPosition = margins;
+        let isFirstDetailPage = true;
+        
+        // Add main header for detail pages (only once)
+        const addMainDetailHeader = async () => {
+          const headerDiv = document.createElement('div');
+          headerDiv.style.position = 'absolute';
+          headerDiv.style.left = '-9999px';
+          headerDiv.style.width = '190mm';
+          headerDiv.style.fontFamily = fontFamily;
+          headerDiv.style.fontSize = '12px';
+          headerDiv.style.backgroundColor = 'white';
+          headerDiv.style.padding = '5mm';
+          
+          headerDiv.innerHTML = `
+            <div class="font-sarabun" style="text-align: center;">
+              <h2 style="font-size: 1.25rem; font-weight: bold; margin: 0;">รายละเอียดการประเมินรถขนส่ง</h2>
+            </div>
+            <div class="font-sarabun" style="margin-bottom: 5px;">
+              <p style="margin: 3px 0; font-size: 0.875rem;"><strong>ผู้รับจ้างช่วง:</strong> ${options.reportData.contractor}</p>
+              <p style="margin: 3px 0; font-size: 0.875rem;"><strong>เดือน:</strong> ${options.months?.find(m => m.value === options.selectedMonth)?.label} ${parseInt(options.selectedYear!) + 543}</p>
+            </div>
+          `;
+          
+          document.body.appendChild(headerDiv);
+          
+          const headerCanvas = await html2canvas(headerDiv, {
+            scale: 2,
+            useCORS: true,
+            allowTaint: true,
+            backgroundColor: '#ffffff'
+          });
+          
+          document.body.removeChild(headerDiv);
+          
+          const headerImgData = headerCanvas.toDataURL('image/png');
+          const headerImgAspectRatio = headerCanvas.height / headerCanvas.width;
+          const headerImgWidth = contentWidth;
+          const headerImgHeight = contentWidth * headerImgAspectRatio;
+          
+          return { headerImgData, headerImgWidth, headerImgHeight };
+        };
+        
+        // Add main header
+        const mainHeader = await addMainDetailHeader();
+        pdf.addImage(mainHeader.headerImgData, 'PNG', margins, currentYPosition, mainHeader.headerImgWidth, mainHeader.headerImgHeight);
+        currentYPosition += mainHeader.headerImgHeight + 3;
+
+        for (const item of vehiclesToShow) {
           // Get vehicle evaluations for this vehicle
           const vehicleEvaluations = filteredEvaluations.filter(
             (evaluation: any) => evaluation.vehiclePlate === item.vehiclePlate
@@ -200,59 +255,89 @@ export class EvaluationReportPDFGenerator {
             return dateA.getTime() - dateB.getTime();
           });
           
-          // Add first page for this vehicle
-          pdf.addPage();
-          let currentYPosition = margins;
-          let isFirstPage = true;
+          // Track if this is the first page for this vehicle
+          let isFirstPageForVehicle = true;
           
-          // Add header for this vehicle (only on first page)
-          const addVehicleHeader = () => {
-            const headerHeight = 40; // Approximate header height in mm
+          // Function to create and add vehicle header
+          const addVehicleHeader = async (isContinuation: boolean = false) => {
+            const vehicleHeaderDiv = document.createElement('div');
+            vehicleHeaderDiv.style.position = 'absolute';
+            vehicleHeaderDiv.style.left = '-9999px';
+            vehicleHeaderDiv.style.width = '190mm';
+            vehicleHeaderDiv.style.fontFamily = fontFamily;
+            vehicleHeaderDiv.style.fontSize = '12px';
+            vehicleHeaderDiv.style.backgroundColor = 'white';
+            vehicleHeaderDiv.style.padding = '2mm';
             
-            // Create header HTML
-            const headerDiv = document.createElement('div');
-            headerDiv.style.position = 'absolute';
-            headerDiv.style.left = '-9999px';
-            headerDiv.style.width = '190mm';
-            headerDiv.style.fontFamily = fontFamily;
-            headerDiv.style.fontSize = '12px';
-            headerDiv.style.backgroundColor = 'white';
-            headerDiv.style.padding = '5mm';
+            const headerText = isContinuation 
+              ? `ทะเบียนรถ: ${item.vehiclePlate} (ต่อ)` 
+              : `ทะเบียนรถ: ${item.vehiclePlate}`;
             
-            headerDiv.innerHTML = `
-              <div class="font-sarabun" style="text-align: center;">
-                <h2 style="font-size: 1.25rem; font-weight: bold; margin: 0;">รายละเอียดการประเมินรถขนส่ง</h2>
-              </div>
-              <div class="font-sarabun" style="margin-bottom: 5px;">
-                <p style="margin: 3px 0; font-size: 0.875rem;"><strong>ทะเบียนรถ:</strong> ${item.vehiclePlate}</p>
-                <p style="margin: 3px 0; font-size: 0.875rem;"><strong>ผู้รับจ้างช่วง:</strong> ${options.reportData.contractor}</p>
-                <p style="margin: 3px 0; font-size: 0.875rem;"><strong>เดือน:</strong> ${options.months?.find(m => m.value === options.selectedMonth)?.label} ${parseInt(options.selectedYear!) + 543}</p>
+            vehicleHeaderDiv.innerHTML = `
+              <div class="font-sarabun" style="background-color: #e0e0e0; padding: 5px; border: 1px solid black;">
+                <h3 style="font-size: 0.8rem; font-weight: bold; margin: 0;">${headerText}</h3>
               </div>
             `;
             
-            return { headerDiv, headerHeight };
+            document.body.appendChild(vehicleHeaderDiv);
+            
+            const vehicleHeaderCanvas = await html2canvas(vehicleHeaderDiv, {
+              scale: 2,
+              useCORS: true,
+              allowTaint: true,
+              backgroundColor: '#ffffff'
+            });
+            
+            document.body.removeChild(vehicleHeaderDiv);
+            
+            const vehicleHeaderImgData = vehicleHeaderCanvas.toDataURL('image/png');
+            const vehicleHeaderAspectRatio = vehicleHeaderCanvas.height / vehicleHeaderCanvas.width;
+            const vehicleHeaderWidth = contentWidth;
+            const vehicleHeaderHeight = contentWidth * vehicleHeaderAspectRatio;
+            
+            return { vehicleHeaderImgData, vehicleHeaderWidth, vehicleHeaderHeight };
           };
           
-          // Add header to first page
-          const { headerDiv, headerHeight } = addVehicleHeader();
-          document.body.appendChild(headerDiv);
+          // Add vehicle header for first page only
+          const vehicleHeader = await addVehicleHeader(false);
           
-          const headerCanvas = await html2canvas(headerDiv, {
-            scale: 2,
-            useCORS: true,
-            allowTaint: true,
-            backgroundColor: '#ffffff'
-          });
+          // Check if vehicle header fits on current page
+          if (currentYPosition + vehicleHeader.vehicleHeaderHeight > contentHeight) {
+            markPageForFooter(currentPage);
+            currentPage++;
+            pdf.addPage();
+            currentYPosition = margins;
+          }
           
-          document.body.removeChild(headerDiv);
+          pdf.addImage(vehicleHeader.vehicleHeaderImgData, 'PNG', margins, currentYPosition, vehicleHeader.vehicleHeaderWidth, vehicleHeader.vehicleHeaderHeight);
+          currentYPosition += vehicleHeader.vehicleHeaderHeight + 2;
+          isFirstPageForVehicle = false;
           
-          const headerImgData = headerCanvas.toDataURL('image/png');
-          const headerImgAspectRatio = headerCanvas.height / headerCanvas.width;
-          const headerImgWidth = contentWidth;
-          const headerImgHeight = contentWidth * headerImgAspectRatio;
+          // Function to create table header HTML
+          const createTableHeader = (dateLabel: string, isContinuation: boolean = false) => {
+            const dateText = isContinuation ? `วันที่: ${dateLabel} (ต่อ)` : `วันที่: ${dateLabel}`;
+            return `
+              <div class="font-sarabun">
+                <h3 style="font-size: 0.75rem; font-weight: bold; margin: 0 0 2px 0;">${dateText}</h3>
+                <table style="width: 100%; border-collapse: collapse; font-size: 0.75rem; margin-bottom: 1px;">
+                  <thead>
+                    <tr style="background-color: #f5f5f5;">
+                      <th style="border: 1px solid black; padding: 4px; text-align: center; font-size: 0.7rem;">เวลา</th>
+                      <th style="border: 1px solid black; padding: 4px; text-align: center; font-size: 0.7rem;">(ก) ความร่วมมือคนขับ (4)</th>
+                      <th style="border: 1px solid black; padding: 4px; text-align: center; font-size: 0.7rem;">(ข) สภาพความพร้อมของรถ (3)</th>
+                      <th style="border: 1px solid black; padding: 4px; text-align: center; font-size: 0.7rem;">(ค) ความเสียหายของพัสดุ (3)</th>
+                      <th style="border: 1px solid black; padding: 4px; text-align: center; font-size: 0.7rem;">คะแนนรวม</th>
+                      <th style="border: 1px solid black; padding: 4px; text-align: center; font-size: 0.7rem;">คะแนนเต็ม</th>
+                      <th style="border: 1px solid black; padding: 4px; text-align: center; font-size: 0.7rem;">เปอร์เซ็นต์</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+            `;
+          };
           
-          pdf.addImage(headerImgData, 'PNG', margins, currentYPosition, headerImgWidth, headerImgHeight);
-          currentYPosition += headerImgHeight + 2; // Add minimal spacing
+          // Store original table data for recreating with header
+          let currentDateForSplit = '';
+          let currentTableRowsHTML = '';
           
           // Process each date group
           for (const date of sortedDates) {
@@ -268,28 +353,16 @@ export class EvaluationReportPDFGenerator {
             tempDiv.style.backgroundColor = 'white';
             tempDiv.style.padding = '5mm';
             
-            let htmlContent = `
-              <div class="font-sarabun">
-                <h3 style="font-size: 0.75rem; font-weight: bold; margin: 0 0 2px 0;">วันที่: ${date}</h3>
-                <table style="width: 100%; border-collapse: collapse; font-size: 0.75rem; margin-bottom: 1px;">
-                  <thead>
-                    <tr style="background-color: #f5f5f5;">
-                      <th style="border: 1px solid black; padding: 4px; text-align: center; font-size: 0.7rem;">เวลา</th>
-                      <th style="border: 1px solid black; padding: 4px; text-align: center; font-size: 0.7rem;">(ก) ความร่วมมือคนขับ (4)</th>
-                      <th style="border: 1px solid black; padding: 4px; text-align: center; font-size: 0.7rem;">(ข) สภาพความพร้อมของรถ (3)</th>
-                      <th style="border: 1px solid black; padding: 4px; text-align: center; font-size: 0.7rem;">(ค) ความเสียหายของพัสดุ (3)</th>
-                      <th style="border: 1px solid black; padding: 4px; text-align: center; font-size: 0.7rem;">คะแนนรวม</th>
-                      <th style="border: 1px solid black; padding: 4px; text-align: center; font-size: 0.7rem;">คะแนนเต็ม</th>
-                      <th style="border: 1px solid black; padding: 4px; text-align: center; font-size: 0.7rem;">เปอร์เซ็นต์</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-            `;
+            let htmlContent = createTableHeader(date);
             
             // Sort evaluations by time
             const sortedEvaluations = dayEvaluations.sort((a: any, b: any) => 
               new Date(a.evaluationDate).getTime() - new Date(b.evaluationDate).getTime()
             );
+            
+            // Store current date and rows for potential split
+            currentDateForSplit = date;
+            currentTableRowsHTML = '';
             
             // Add row for each trip
             sortedEvaluations.forEach((evaluation: any) => {
@@ -301,17 +374,25 @@ export class EvaluationReportPDFGenerator {
               const maxScore = 4 + 3 + 3; // 10
               const percentage = Math.round((totalScore / maxScore) * 100);
               
-              htmlContent += `
+              // Get score details for display
+              const driverScoreText = `${driverScore}/4`;
+              const vehicleScoreText = `${vehicleScore}/3`;
+              const damageScoreText = `${damageScore}/3`;
+              
+              const rowHTML = `
                     <tr>
                       <td style="border: 1px solid black; padding: 4px; text-align: center; font-size: 0.75rem;">${evalTime}</td>
-                      <td style="border: 1px solid black; padding: 4px; text-align: center; font-size: 0.75rem;">${driverScore}</td>
-                      <td style="border: 1px solid black; padding: 4px; text-align: center; font-size: 0.75rem;">${vehicleScore}</td>
-                      <td style="border: 1px solid black; padding: 4px; text-align: center; font-size: 0.75rem;">${damageScore}</td>
+                      <td style="border: 1px solid black; padding: 4px; text-align: center; font-size: 0.75rem;">${driverScoreText}</td>
+                      <td style="border: 1px solid black; padding: 4px; text-align: center; font-size: 0.75rem;">${vehicleScoreText}</td>
+                      <td style="border: 1px solid black; padding: 4px; text-align: center; font-size: 0.75rem;">${damageScoreText}</td>
                       <td style="border: 1px solid black; padding: 4px; text-align: center; font-size: 0.75rem;">${totalScore}</td>
                       <td style="border: 1px solid black; padding: 4px; text-align: center; font-size: 0.75rem;">${maxScore}</td>
                       <td style="border: 1px solid black; padding: 4px; text-align: center; font-size: 0.75rem;">${percentage}%</td>
                     </tr>
               `;
+              
+              htmlContent += rowHTML;
+              currentTableRowsHTML += rowHTML;
             });
             
             htmlContent += `
@@ -373,104 +454,151 @@ export class EvaluationReportPDFGenerator {
             const dayImgWidth = contentWidth;
             const dayImgHeight = contentWidth * dayImgAspectRatio;
             
-            // Check if this day's data fits in remaining space on current page
+            // Check if this day's table fits in remaining space on current page
             const remainingSpace = contentHeight - currentYPosition;
+            const minRequiredSpace = 30; // Minimum space needed to show table header properly
             
-            if (dayImgHeight > remainingSpace && currentYPosition > margins + headerImgHeight) {
-              // Start a new page for this day's data
+            // If table fits completely on current page
+            if (dayImgHeight <= remainingSpace) {
+              // Add day's data to current page
+              pdf.addImage(dayImgData, 'PNG', margins, currentYPosition, dayImgWidth, dayImgHeight);
+              currentYPosition += dayImgHeight + 2;
+            } else if (remainingSpace < minRequiredSpace) {
+              // Not enough space even for header, move to new page entirely
               markPageForFooter(currentPage);
               currentPage++;
               pdf.addPage();
               currentYPosition = margins;
               
               // Add vehicle header on new page
-              const { headerDiv: newHeaderDiv } = addVehicleHeader();
-              document.body.appendChild(newHeaderDiv);
+              const newVehicleHeader = await addVehicleHeader(true);
+              pdf.addImage(newVehicleHeader.vehicleHeaderImgData, 'PNG', margins, currentYPosition, newVehicleHeader.vehicleHeaderWidth, newVehicleHeader.vehicleHeaderHeight);
+              currentYPosition += newVehicleHeader.vehicleHeaderHeight + 2;
               
-              const newHeaderCanvas = await html2canvas(newHeaderDiv, {
-                scale: 1.5,
-                useCORS: true,
-                allowTaint: true,
-                backgroundColor: '#ffffff'
-              });
-              
-              document.body.removeChild(newHeaderDiv);
-              
-              const newHeaderImgData = newHeaderCanvas.toDataURL('image/png');
-              const newHeaderImgAspectRatio = newHeaderCanvas.height / newHeaderCanvas.width;
-              const newHeaderImgWidth = contentWidth;
-              const newHeaderImgHeight = contentWidth * newHeaderImgAspectRatio;
-              
-              pdf.addImage(newHeaderImgData, 'PNG', margins, currentYPosition, newHeaderImgWidth, newHeaderImgHeight);
-              currentYPosition += newHeaderImgHeight + 2;
-            }
-            
-            // Check if day's data needs to be split across multiple pages
-            if (dayImgHeight > contentHeight) {
-              // Split day's data across multiple pages
-              let dayRemainingHeight = dayImgHeight;
-              let sourceY = 0;
-              
-              while (dayRemainingHeight > 0) {
-                const availableHeight = contentHeight - currentYPosition;
-                const currentPageHeight = Math.min(availableHeight, dayRemainingHeight);
-                const currentCanvasHeight = (currentPageHeight / dayImgHeight) * dayCanvas.height;
-                
-                const pageCanvas = document.createElement('canvas');
-                pageCanvas.width = dayCanvas.width;
-                pageCanvas.height = currentCanvasHeight;
-                const pageCtx = pageCanvas.getContext('2d');
-                
-                if (pageCtx) {
-                  pageCtx.drawImage(dayCanvas, 0, sourceY, dayCanvas.width, currentCanvasHeight, 0, 0, dayCanvas.width, currentCanvasHeight);
-                  const currentPageImgData = pageCanvas.toDataURL('image/png');
-                  pdf.addImage(currentPageImgData, 'PNG', margins, currentYPosition, dayImgWidth, currentPageHeight);
-                  
-                  sourceY += currentCanvasHeight;
-                  dayRemainingHeight -= currentPageHeight;
-                  
-                  if (dayRemainingHeight > 0) {
-                    markPageForFooter(currentPage);
-                    currentPage++;
-                    pdf.addPage();
-                    currentYPosition = margins;
-                    
-                    // Add vehicle header on new page
-                    const { headerDiv: newHeaderDiv } = addVehicleHeader();
-                    document.body.appendChild(newHeaderDiv);
-                    
-                    const newHeaderCanvas = await html2canvas(newHeaderDiv, {
-                      scale: 2,
-                      useCORS: true,
-                      allowTaint: true,
-                      backgroundColor: '#ffffff'
-                    });
-                    
-                    document.body.removeChild(newHeaderDiv);
-                    
-                    const newHeaderImgData = newHeaderCanvas.toDataURL('image/png');
-                    const newHeaderImgAspectRatio = newHeaderCanvas.height / newHeaderCanvas.width;
-                    const newHeaderImgWidth = contentWidth;
-                    const newHeaderImgHeight = contentWidth * newHeaderImgAspectRatio;
-                    
-                    pdf.addImage(newHeaderImgData, 'PNG', margins, currentYPosition, newHeaderImgWidth, newHeaderImgHeight);
-                    currentYPosition += newHeaderImgHeight + 2;
-                  } else {
-                    currentYPosition += currentPageHeight;
-                  }
-                }
-              }
-            } else {
-              // Add day's data to current page
+              // Add day's data to new page
               pdf.addImage(dayImgData, 'PNG', margins, currentYPosition, dayImgWidth, dayImgHeight);
-              currentYPosition += dayImgHeight;
+              currentYPosition += dayImgHeight + 2;
+            } else {
+              // We have some space, split the table
+              // Show what we can on current page
+              const availableHeight = remainingSpace;
+              const sourceHeightRatio = availableHeight / dayImgHeight;
+              const sourceCanvasHeight = dayCanvas.height * sourceHeightRatio;
+              
+              const pageCanvas = document.createElement('canvas');
+              pageCanvas.width = dayCanvas.width;
+              pageCanvas.height = sourceCanvasHeight;
+              const pageCtx = pageCanvas.getContext('2d');
+              
+              if (pageCtx) {
+                // Draw first part on current page
+                pageCtx.drawImage(dayCanvas, 0, 0, dayCanvas.width, sourceCanvasHeight, 0, 0, dayCanvas.width, sourceCanvasHeight);
+                const firstPartImgData = pageCanvas.toDataURL('image/png');
+                
+                // Calculate actual table position and width
+                // The table is inside the tempDiv with 5mm padding
+                const paddingMM = 5;
+                const actualTableX = margins + paddingMM;
+                const actualTableWidth = dayImgWidth - (paddingMM * 2);
+                
+                pdf.addImage(firstPartImgData, 'PNG', margins, currentYPosition, dayImgWidth, availableHeight);
+                
+                // Draw bottom border to close the table on current page (like table bottom border)
+                pdf.setDrawColor(0, 0, 0); // Black color
+                pdf.setLineWidth(0.5); // Slightly thicker for table bottom border
+                const tableBottomY = currentYPosition + availableHeight + 0.8; // Add small offset to avoid overlapping with text
+                pdf.line(actualTableX, tableBottomY, actualTableX + actualTableWidth, tableBottomY);
+                
+                // Move to new page for remaining content
+                markPageForFooter(currentPage);
+                currentPage++;
+                pdf.addPage();
+                currentYPosition = margins;
+                
+                // Add vehicle header on new page
+                const newVehicleHeader = await addVehicleHeader(true);
+                pdf.addImage(newVehicleHeader.vehicleHeaderImgData, 'PNG', margins, currentYPosition, newVehicleHeader.vehicleHeaderWidth, newVehicleHeader.vehicleHeaderHeight);
+                currentYPosition += newVehicleHeader.vehicleHeaderHeight + 2;
+                
+                // Create table with header + remaining data
+                const remainingDiv = document.createElement('div');
+                remainingDiv.style.position = 'absolute';
+                remainingDiv.style.left = '-9999px';
+                remainingDiv.style.width = '190mm';
+                remainingDiv.style.fontFamily = fontFamily;
+                remainingDiv.style.fontSize = '12px';
+                remainingDiv.style.backgroundColor = 'white';
+                remainingDiv.style.padding = '5mm';
+                
+                // Build damage notes HTML
+                let damageNotesHTML = '';
+                const dayDamageEvaluations = dayEvaluations.filter((evaluation: any) => 
+                  evaluation.damageFound && evaluation.damageValue && evaluation.damageValue > 0
+                );
+                
+                if (dayDamageEvaluations.length > 0) {
+                  damageNotesHTML = `
+                    <div class="font-sarabun" style="margin-top: 5px; margin-bottom: 1px; padding: 4px; background-color: #f5f5f5; border: 1px solid #cccccc; border-radius: 4px;">
+                      <div style="font-size: 0.7rem; font-weight: bold; color: #000; margin-bottom: 2px;">หมายเหตุความเสียหาย (วันที่ ${date}):</div>
+                  `;
+                  
+                  dayDamageEvaluations
+                    .sort((a, b) => new Date(a.evaluationDate).getTime() - new Date(b.evaluationDate).getTime())
+                    .forEach((evaluation: any) => {
+                      const evalTime = new Date(evaluation.evaluationDate).toLocaleTimeString('th-TH', { hour: '2-digit', minute: '2-digit' });
+                      const damageValue = evaluation.damageValue ? evaluation.damageValue.toLocaleString('th-TH') : '0';
+                      const remark = evaluation.remark ? ` (${evaluation.remark})` : '';
+                      
+                      damageNotesHTML += `
+                        <div style="font-size: 0.65rem; color: #000; margin-left: 8px; margin-bottom: 3px;">
+                          • เวลา ${evalTime} - มูลค่าความเสียหาย: ${damageValue} บาท${remark}
+                        </div>
+                      `;
+                    });
+                  
+                  damageNotesHTML += `
+                    </div>
+                  `;
+                }
+                
+                // Recreate table with header, remaining rows, and damage notes
+                remainingDiv.innerHTML = createTableHeader(date, true) + currentTableRowsHTML + `
+                      </tbody>
+                    </table>
+                    ${damageNotesHTML}
+                  </div>
+                `;
+                
+                document.body.appendChild(remainingDiv);
+                
+                const remainingCanvas = await html2canvas(remainingDiv, {
+                  scale: 2,
+                  useCORS: true,
+                  allowTaint: true,
+                  backgroundColor: '#ffffff'
+                });
+                
+                document.body.removeChild(remainingDiv);
+                
+                const remainingImgData = remainingCanvas.toDataURL('image/png');
+                const remainingAspectRatio = remainingCanvas.height / remainingCanvas.width;
+                const remainingWidth = contentWidth;
+                const remainingHeight = contentWidth * remainingAspectRatio;
+                
+                // Add remaining part with header to new page
+                pdf.addImage(remainingImgData, 'PNG', margins, currentYPosition, remainingWidth, remainingHeight);
+                currentYPosition += remainingHeight + 2;
+              }
             }
           }
           
-          // Mark footer for last page of this vehicle
-          markPageForFooter(currentPage);
-          currentPage++;
+          // Add small spacing between vehicles
+          currentYPosition += 3;
         }
+        
+        // Mark footer for last detail page
+        markPageForFooter(currentPage);
+        currentPage++;
       }
 
       // Now add footers to all pages with correct total page count

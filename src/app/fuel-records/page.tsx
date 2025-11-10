@@ -112,8 +112,13 @@ export default function FuelRecordsPage() {
   const [totalPages, setTotalPages] = useState(1);
   const [totalItems, setTotalItems] = useState(0);
   const [itemsPerPage, setItemsPerPage] = useState(20);
-  const [sortBy, setSortBy] = useState('fuelDate');
-  const [sortOrder, setSortOrder] = useState<'asc' | 'desc'>('desc');
+  const sortBy = 'fuelDate'; // Fixed sort by fuel date
+  const sortOrder = 'desc'; // Fixed sort order descending (newest first)
+  const [selectedVehicleId, setSelectedVehicleId] = useState<string>('');
+  const [selectedMonth, setSelectedMonth] = useState<string>((new Date().getMonth() + 1).toString());
+  const [selectedYear, setSelectedYear] = useState<string>(new Date().getFullYear().toString());
+  const [vehicleOptions, setVehicleOptions] = useState<Array<{ id: number; licensePlate: string; vehicleType: string }>>([]);
+  const [loadingVehicles, setLoadingVehicles] = useState(false);
   const [viewDialog, setViewDialog] = useState<{ open: boolean; record: FuelRecord | null }>({
     open: false,
     record: null
@@ -127,7 +132,6 @@ export default function FuelRecordsPage() {
   // Refs to avoid duplicate initial fetches from multiple effects
   const didInitialFetch = useRef(false);
   const skipSearchEffect = useRef(true);
-  const skipSortEffect = useRef(true);
   
 
   // Get driver image by license number (since license is unique)
@@ -299,6 +303,9 @@ export default function FuelRecordsPage() {
         sortBy,
         sortOrder,
         ...(searchTerm && { search: searchTerm }),
+        ...(selectedVehicleId && { vehicleId: selectedVehicleId }),
+        ...(selectedMonth && { month: selectedMonth }),
+        ...(selectedYear && { year: selectedYear }),
       });
 
       const response = await fetch(`/api/fuel-records?${params}`);
@@ -382,11 +389,39 @@ export default function FuelRecordsPage() {
     });
   };
 
+  // Fetch vehicle options for filter
+  const fetchVehicleOptions = async () => {
+    try {
+      setLoadingVehicles(true);
+      const response = await fetch('/api/vehicles/options');
+      const data = await response.json();
+      
+      if (response.ok && data.vehicles) {
+        const options = data.vehicles.map((v: any) => ({
+          id: v.id,
+          licensePlate: v.licensePlate || 'ไม่ระบุ',
+          vehicleType: v.vehicleType || ''
+        }));
+        setVehicleOptions(options);
+        
+        // Check if currently selected vehicle still exists
+        if (selectedVehicleId && !options.some((v: any) => String(v.id) === selectedVehicleId)) {
+          setSelectedVehicleId('');
+        }
+      }
+    } catch (error) {
+      console.error('Error fetching vehicle options:', error);
+    } finally {
+      setLoadingVehicles(false);
+    }
+  };
+
   // Clear filters
   const clearFilters = () => {
     setSearchTerm('');
-    setSortBy('fuelDate');
-    setSortOrder('desc');
+    setSelectedVehicleId('');
+    setSelectedMonth('');
+    setSelectedYear('');
     setPage(1);
   };
 
@@ -396,6 +431,7 @@ export default function FuelRecordsPage() {
     if (!didInitialFetch.current) {
       didInitialFetch.current = true;
       fetchFuelRecords(true);
+      fetchVehicleOptions();
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
@@ -415,15 +451,13 @@ export default function FuelRecordsPage() {
     return () => clearTimeout(delayedFetch);
   }, [searchTerm, itemsPerPage]);
 
-  // Handle sort changes immediately
+  // Handle filter changes (vehicle, month, year)
   useEffect(() => {
-    if (skipSortEffect.current) {
-      skipSortEffect.current = false;
-      return;
+    if (didInitialFetch.current) {
+      setPage(1);
+      fetchFuelRecords();
     }
-    setPage(1);
-    fetchFuelRecords();
-  }, [sortBy, sortOrder]);
+  }, [selectedVehicleId, selectedMonth, selectedYear]);
 
   // Fetch when page changes
   useEffect(() => {
@@ -473,19 +507,17 @@ export default function FuelRecordsPage() {
         </Box>
 
         {/* Search & Filters */}
-
           <Paper sx={{ p: 3, mb: 3, borderRadius: 2 }}>
-            {/* Search and Date Filter Row */}
+            {/* First Row - Search and Main Filters */}
             <Box sx={{ 
               display: 'grid', 
               gridTemplateColumns: { 
                 xs: '1fr', 
-                sm: '1fr',
-                md: '2fr 1fr 1fr auto' 
+                sm: '1fr 1fr',
+                md: '2fr 1.2fr 0.8fr 0.8fr' 
               },
               gap: 2, 
-              mb: 2,
-              alignItems: 'center'
+              mb: 2
             }}>
               <TextField
                 placeholder="ค้นหาทะเบียนรถ, ยี่ห้อ, คนขับ, หมายเหตุ..."
@@ -510,71 +542,146 @@ export default function FuelRecordsPage() {
                   ),
                 }}
               />
-              
+
               <FormControl size="small">
-                <InputLabel>เรียงตาม</InputLabel>
+                <InputLabel>ทะเบียนรถ</InputLabel>
                 <Select
-                  value={sortBy}
-                  label="เรียงตาม"
-                  onChange={(e) => setSortBy(e.target.value)}
+                  value={selectedVehicleId}
+                  label="ทะเบียนรถ"
+                  onChange={(e) => setSelectedVehicleId(e.target.value)}
+                  disabled={loadingVehicles}
+                >
+                  <MenuItem value="">ทั้งหมด</MenuItem>
+                  {vehicleOptions.map((vehicle) => (
+                    <MenuItem key={vehicle.id} value={String(vehicle.id)}>
+                      {vehicle.licensePlate}
+                    </MenuItem>
+                  ))}
+                </Select>
+              </FormControl>
+
+              <FormControl size="small">
+                <InputLabel>เดือน</InputLabel>
+                <Select
+                  value={selectedMonth}
+                  label="เดือน"
+                  onChange={(e) => setSelectedMonth(e.target.value)}
+                >
+                  <MenuItem value="">ทั้งหมด</MenuItem>
+                  <MenuItem value="1">มกราคม</MenuItem>
+                  <MenuItem value="2">กุมภาพันธ์</MenuItem>
+                  <MenuItem value="3">มีนาคม</MenuItem>
+                  <MenuItem value="4">เมษายน</MenuItem>
+                  <MenuItem value="5">พฤษภาคม</MenuItem>
+                  <MenuItem value="6">มิถุนายน</MenuItem>
+                  <MenuItem value="7">กรกฎาคม</MenuItem>
+                  <MenuItem value="8">สิงหาคม</MenuItem>
+                  <MenuItem value="9">กันยายน</MenuItem>
+                  <MenuItem value="10">ตุลาคม</MenuItem>
+                  <MenuItem value="11">พฤศจิกายน</MenuItem>
+                  <MenuItem value="12">ธันวาคม</MenuItem>
+                </Select>
+              </FormControl>
+
+              <FormControl size="small">
+                <InputLabel>ปี</InputLabel>
+                <Select
+                  value={selectedYear}
+                  label="ปี"
+                  onChange={(e) => setSelectedYear(e.target.value)}
                 >
                   
-                  <MenuItem value="fuelDate">วันที่เติมน้ำมัน</MenuItem>
-                  <MenuItem value="fuelAmount">ปริมาณน้ำมัน</MenuItem>
-                  <MenuItem value="odometer">เลขไมล์</MenuItem>
+                  {(() => {
+                    const currentYear = new Date().getFullYear();
+                    const startYear = 2025; // ปีเริ่มต้นของระบบ
+                    const years = [];
+                    // เริ่มจากปีปัจจุบันลงมาถึงปีเริ่มต้น
+                    for (let year = currentYear; year >= startYear; year--) {
+                      years.push(
+                        <MenuItem key={year} value={String(year)}>
+                          {year + 543}
+                        </MenuItem>
+                      );
+                    }
+                    return years;
+                  })()}
                 </Select>
               </FormControl>
-
-              <FormControl size="small">
-                <InputLabel>ลำดับ</InputLabel>
-                <Select
-                  value={sortOrder}
-                  label="ลำดับ"
-                  onChange={(e) => setSortOrder(e.target.value as 'asc' | 'desc')}
-                >
-                  <MenuItem value="desc">มากไปน้อย</MenuItem>
-                  <MenuItem value="asc">น้อยไปมาก</MenuItem>
-                </Select>
-              </FormControl>
-              
-              <Button
-                variant="outlined"
-                size="small"
-                onClick={clearFilters}
-                sx={{ 
-                  minWidth: 'auto',
-                  px: 2,
-                  color: 'text.secondary',
-                  borderColor: 'grey.300',
-                  '&:hover': { 
-                    color: 'error.main',
-                    borderColor: 'error.main' 
-                  }
-                }}
-              >
-                ล้างทั้งหมด
-              </Button>
             </Box>
 
-            {/* Active Filters */}
-            {searchTerm && (
-              <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 1, alignItems: 'center' }}>
-                <Typography variant="caption" color="text.secondary" sx={{ mr: 1 }}>
-                  ตัวกรอง:
-                </Typography>
-                
-                {searchTerm && (
-                  <Chip
-                    label={`ค้นหา: "${searchTerm}"`}
-                    onDelete={() => setSearchTerm('')}
-                    color="primary"
-                    variant="outlined"
-                    size="small"
-                  />
-                )}
-                
+            {/* Active Filters and Clear Button */}
+            {(searchTerm || selectedVehicleId || selectedMonth) && (
+              <Box sx={{ 
+                display: 'flex', 
+                flexWrap: 'wrap', 
+                gap: 1, 
+                alignItems: 'center',
+                justifyContent: 'space-between',
+                mb: 2
+              }}>
+                <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 1, alignItems: 'center' }}>
+                  <Typography variant="caption" color="text.secondary" sx={{ mr: 1 }}>
+                    ตัวกรอง:
+                  </Typography>
+                  
+                  {searchTerm && (
+                    <Chip
+                      label={`ค้นหา: "${searchTerm}"`}
+                      onDelete={() => setSearchTerm('')}
+                      color="primary"
+                      variant="outlined"
+                      size="small"
+                    />
+                  )}
 
+                  {selectedVehicleId && (
+                    <Chip
+                      label={`ทะเบียน: ${vehicleOptions.find(v => String(v.id) === String(selectedVehicleId))?.licensePlate || selectedVehicleId}`}
+                      onDelete={() => setSelectedVehicleId('')}
+                      color="primary"
+                      variant="outlined"
+                      size="small"
+                    />
+                  )}
 
+                  {selectedMonth && (
+                    <Chip
+                      label={`เดือน: ${['มกราคม', 'กุมภาพันธ์', 'มีนาคม', 'เมษายน', 'พฤษภาคม', 'มิถุนายน', 'กรกฎาคม', 'สิงหาคม', 'กันยายน', 'ตุลาคม', 'พฤศจิกายน', 'ธันวาคม'][parseInt(selectedMonth) - 1]}`}
+                      onDelete={() => setSelectedMonth('')}
+                      color="primary"
+                      variant="outlined"
+                      size="small"
+                    />
+                  )}
+
+                  {selectedYear && (
+                    <Chip
+                      label={`ปี: ${parseInt(selectedYear) + 543}`}
+                      onDelete={() => setSelectedYear('')}
+                      color="primary"
+                      variant="outlined"
+                      size="small"
+                    />
+                  )}
+                </Box>
+
+                <Button
+                  variant="outlined"
+                  size="small"
+                  onClick={clearFilters}
+                  sx={{ 
+                    minWidth: 'auto',
+                    px: 3,
+                    color: 'text.secondary',
+                    borderColor: 'grey.300',
+                    '&:hover': { 
+                      color: 'error.main',
+                      borderColor: 'error.main' 
+                    }
+                  }}
+                >
+                  ล้างทั้งหมด
+                </Button>
               </Box>
             )}
           </Paper>

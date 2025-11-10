@@ -118,15 +118,54 @@ export default function EvaluationPage() {
     loadEvaluations();
   }, []);
 
-  // Helper: all vehicle plates available
+  // Helper: all vehicle plates available (cascade based on contractor selection)
   const getAvailableVehiclePlatesForFilter = () => {
-    const plates = evaluations.map(e => e.vehiclePlate).filter(Boolean);
+    // Filter by date first
+    let filteredByDate = evaluations;
+    if (selectedMonth && selectedYear) {
+      filteredByDate = evaluations.filter(evaluation => {
+        const evalDate = new Date(evaluation.evaluationDate);
+        const evalMonth = (evalDate.getMonth() + 1).toString();
+        const evalYear = evalDate.getFullYear().toString();
+        return evalMonth === selectedMonth && evalYear === selectedYear;
+      });
+    } else if (selectedYear) {
+      filteredByDate = evaluations.filter(evaluation => {
+        const evalDate = new Date(evaluation.evaluationDate);
+        const evalYear = evalDate.getFullYear().toString();
+        return evalYear === selectedYear;
+      });
+    }
+
+    // Then filter by contractor if selected
+    const filteredByContractor = selectedContractor
+      ? filteredByDate.filter(e => e.contractorName === selectedContractor)
+      : filteredByDate;
+    
+    const plates = filteredByContractor.map(e => e.vehiclePlate).filter(Boolean);
     return Array.from(new Set(plates)).sort((a, b) => a.localeCompare(b));
   };
 
-  // Helper: all contractors available
+  // Helper: all contractors available (filtered by selected month/year)
   const getAvailableContractorsForFilter = () => {
-    const contractors = evaluations.map(e => e.contractorName).filter(Boolean);
+    // Filter by date
+    let filteredByDate = evaluations;
+    if (selectedMonth && selectedYear) {
+      filteredByDate = evaluations.filter(evaluation => {
+        const evalDate = new Date(evaluation.evaluationDate);
+        const evalMonth = (evalDate.getMonth() + 1).toString();
+        const evalYear = evalDate.getFullYear().toString();
+        return evalMonth === selectedMonth && evalYear === selectedYear;
+      });
+    } else if (selectedYear) {
+      filteredByDate = evaluations.filter(evaluation => {
+        const evalDate = new Date(evaluation.evaluationDate);
+        const evalYear = evalDate.getFullYear().toString();
+        return evalYear === selectedYear;
+      });
+    }
+
+    const contractors = filteredByDate.map(e => e.contractorName).filter(Boolean);
     return Array.from(new Set(contractors)).sort((a, b) => a.localeCompare(b));
   };
 
@@ -164,6 +203,39 @@ export default function EvaluationPage() {
     setFilteredEvaluations(filtered);
     setPage(0); // Reset to first page when filter changes
   }, [evaluations, selectedMonth, selectedYear, selectedVehiclePlate, selectedContractor]);
+
+  // Reset vehicle plate when contractor changes (cascade effect)
+  useEffect(() => {
+    // Always reset vehicle plate when contractor changes
+    if (selectedContractor) {
+      // Check if the selected vehicle plate belongs to the selected contractor
+      const availablePlates = evaluations
+        .filter(e => e.contractorName === selectedContractor)
+        .map(e => e.vehiclePlate);
+      
+      // If the selected plate is not in the available plates for this contractor, reset it
+      if (selectedVehiclePlate && !availablePlates.includes(selectedVehiclePlate)) {
+        setSelectedVehiclePlate('');
+      }
+    }
+  }, [selectedContractor, evaluations]);
+
+  // Reset contractor and vehicle plate when date filter changes
+  useEffect(() => {
+    const availableContractors = getAvailableContractorsForFilter();
+    
+    // If selected contractor is not in the available list, reset it
+    if (selectedContractor && !availableContractors.includes(selectedContractor)) {
+      setSelectedContractor('');
+      setSelectedVehiclePlate('');
+    } else if (selectedContractor) {
+      // If contractor is still valid, check vehicle plate
+      const availablePlates = getAvailableVehiclePlatesForFilter();
+      if (selectedVehiclePlate && !availablePlates.includes(selectedVehiclePlate)) {
+        setSelectedVehiclePlate('');
+      }
+    }
+  }, [selectedMonth, selectedYear]);
 
   // Get unique years from evaluations
   const getAvailableYears = () => {
@@ -332,19 +404,7 @@ export default function EvaluationPage() {
             width: { xs: '100%', sm: 'auto' },
             flexDirection: { xs: 'column', sm: 'row' }
           }}>
-            <Button
-              variant="outlined"
-              startIcon={<AnalyticsIcon />}
-              href="/evaluation/report"
-              sx={{ 
-                borderRadius: 2,
-                minHeight: { xs: 44, sm: 36 },
-                fontSize: { xs: '0.875rem', sm: '0.8125rem' }
-              }}
-              fullWidth={isMobile}
-            >
-              รายงานสรุป
-            </Button>
+           
 
             <Button
               variant="contained"
@@ -363,109 +423,94 @@ export default function EvaluationPage() {
         </Box>
 
         {/* Search & Filters */}
-        <Paper sx={{ 
-          p: { xs: 2, sm: 3 }, 
-          mb: 3, 
-          borderRadius: 3,
-          boxShadow: '0 2px 8px rgba(0,0,0,0.08)',
-          border: '1px solid rgba(0,0,0,0.05)'
-        }}>
+        <Paper sx={{ p: 3, mb: 3, borderRadius: 2 }}>
+          <Typography variant="h6" sx={{ mb: 2, display: 'flex', alignItems: 'center', gap: 1 }}>
+            <FilterIcon color="primary" />
+            ตัวกรองข้อมูล
+          </Typography>
+          
           {/* Filters Row */}
           <Box sx={{ 
-            display: 'grid', 
-            gridTemplateColumns: { 
-              xs: '1fr', 
-              sm: '1fr 1fr',
-              md: '1fr 1fr 1fr 1fr auto' 
-            },
-            gap: { xs: 1.5, sm: 2 }, 
-            mb: { xs: 1.5, sm: 2 },
+            display: 'flex', 
+            gap: 2, 
+            flexWrap: 'wrap',
             alignItems: 'center'
           }}>
-            <FormControl size="small">
-              <InputLabel>ผู้รับจ้างช่วง</InputLabel>
-              <Select
-                value={selectedContractor}
-                label="ผู้รับจ้างช่วง"
-                onChange={(e) => setSelectedContractor(e.target.value)}
-              >
-                <MenuItem value="">ทั้งหมด</MenuItem>
-                {getAvailableContractorsForFilter().map((contractor) => (
-                  <MenuItem key={contractor} value={contractor}>
-                    {contractor}
-                  </MenuItem>
-                ))}
-              </Select>
-            </FormControl>
+            <Box sx={{ minWidth: 200, flex: 1 }}>
+              <FormControl fullWidth size="small">
+                <InputLabel>ผู้รับจ้างช่วง</InputLabel>
+                <Select
+                  value={selectedContractor}
+                  label="ผู้รับจ้างช่วง"
+                  onChange={(e) => {
+                    setSelectedContractor(e.target.value);
+                    // Reset vehicle plate when contractor changes
+                    setSelectedVehiclePlate('');
+                  }}
+                >
+                  <MenuItem value="">ทั้งหมด</MenuItem>
+                  {getAvailableContractorsForFilter().map((contractor) => (
+                    <MenuItem key={contractor} value={contractor}>
+                      {contractor}
+                    </MenuItem>
+                  ))}
+                </Select>
+              </FormControl>
+            </Box>
 
-            <FormControl size="small">
-              <InputLabel>ทะเบียนรถ</InputLabel>
-              <Select
-                value={selectedVehiclePlate}
-                label="ทะเบียนรถ"
-                onChange={(e) => setSelectedVehiclePlate(e.target.value)}
-              >
-                <MenuItem value="">ทั้งหมด</MenuItem>
-                {getAvailableVehiclePlatesForFilter().map((plate) => (
-                  <MenuItem key={plate} value={plate}>
-                    {plate}
-                  </MenuItem>
-                ))}
-              </Select>
-            </FormControl>
+            <Box sx={{ minWidth: 150 }}>
+              <FormControl fullWidth size="small">
+                <InputLabel>ทะเบียนรถ</InputLabel>
+                <Select
+                  value={selectedVehiclePlate}
+                  label="ทะเบียนรถ"
+                  onChange={(e) => setSelectedVehiclePlate(e.target.value)}
+                  disabled={!selectedContractor}
+                >
+                  <MenuItem value="">ทั้งหมด</MenuItem>
+                  {getAvailableVehiclePlatesForFilter().map((plate) => (
+                    <MenuItem key={plate} value={plate}>
+                      {plate}
+                    </MenuItem>
+                  ))}
+                </Select>
+              </FormControl>
+            </Box>
             
-            <FormControl size="small">
-              <InputLabel>เดือน</InputLabel>
-              <Select
-                value={selectedMonth}
-                label="เดือน"
-                onChange={(e) => setSelectedMonth(e.target.value)}
-              >
-                <MenuItem value="">ทั้งหมด</MenuItem>
-                {months.map((month) => (
-                  <MenuItem key={month.value} value={month.value}>
-                    {month.label}
-                  </MenuItem>
-                ))}
-              </Select>
-            </FormControl>
+            <Box sx={{ minWidth: 150 }}>
+              <FormControl fullWidth size="small">
+                <InputLabel>เดือน</InputLabel>
+                <Select
+                  value={selectedMonth}
+                  label="เดือน"
+                  onChange={(e) => setSelectedMonth(e.target.value)}
+                >
+                  <MenuItem value="">ทั้งหมด</MenuItem>
+                  {months.map((month) => (
+                    <MenuItem key={month.value} value={month.value}>
+                      {month.label}
+                    </MenuItem>
+                  ))}
+                </Select>
+              </FormControl>
+            </Box>
 
-            <FormControl size="small">
-              <InputLabel>ปี</InputLabel>
-              <Select
-                value={selectedYear}
-                label="ปี"
-                onChange={(e) => setSelectedYear(e.target.value)}
-              >
-                {getAvailableYears().map((year) => (
-                  <MenuItem key={year} value={year.toString()}>
-                    {year + 543}
-                  </MenuItem>
-                ))}
-              </Select>
-            </FormControl>
-
-
-
-            <Button
-                variant="outlined"
-                size="small"
-                onClick={handleResetFilter}
-                sx={{ 
-                  minWidth: { xs: '100%', md: 'auto' },
-                  px: 2,
-                  minHeight: { xs: 40, sm: 32 },
-                  color: 'text.secondary',
-                  borderColor: 'grey.300',
-                  '&:hover': { 
-                    color: 'error.main',
-                    borderColor: 'error.main' 
-                  }
-                }}
-                fullWidth={isMobile}
-              >
-                ล้างทั้งหมด
-              </Button>
+            <Box sx={{ minWidth: 120 }}>
+              <FormControl fullWidth size="small">
+                <InputLabel>ปี</InputLabel>
+                <Select
+                  value={selectedYear}
+                  label="ปี"
+                  onChange={(e) => setSelectedYear(e.target.value)}
+                >
+                  {getAvailableYears().map((year) => (
+                    <MenuItem key={year} value={year.toString()}>
+                      {year + 543}
+                    </MenuItem>
+                  ))}
+                </Select>
+              </FormControl>
+            </Box>
           </Box>
 
           {/* Active Filters */}
@@ -478,7 +523,10 @@ export default function EvaluationPage() {
               {selectedContractor && (
                 <Chip
                   label={`ผู้รับจ้างช่วง: ${selectedContractor}`}
-                  onDelete={() => setSelectedContractor('')}
+                  onDelete={() => {
+                    setSelectedContractor('');
+                    setSelectedVehiclePlate('');
+                  }}
                   color="primary"
                   variant="outlined"
                   size="small"
@@ -487,7 +535,7 @@ export default function EvaluationPage() {
 
               {selectedVehiclePlate && (
                 <Chip
-                  label={`ทะเบียน: ${selectedVehiclePlate}`}
+                  label={`ทะเบียนรถ: ${selectedVehiclePlate}`}
                   onDelete={() => setSelectedVehiclePlate('')}
                   color="info"
                   variant="outlined"
@@ -499,7 +547,7 @@ export default function EvaluationPage() {
                 <Chip
                   label={`เดือน: ${months.find(m => m.value === selectedMonth)?.label || selectedMonth}`}
                   onDelete={() => setSelectedMonth('')}
-                  color="info"
+                  color="primary"
                   variant="outlined"
                   size="small"
                 />
@@ -509,11 +557,26 @@ export default function EvaluationPage() {
                 <Chip
                   label={`ปี: ${parseInt(selectedYear) + 543}`}
                   onDelete={() => setSelectedYear(new Date().getFullYear().toString())}
-                  color="info"
+                  color="warning"
                   variant="outlined"
                   size="small"
                 />
               )}
+
+              <Chip
+                label="ล้างทั้งหมด"
+                onClick={handleResetFilter}
+                variant="outlined"
+                size="small"
+                sx={{ 
+                  color: 'text.secondary',
+                  borderColor: 'grey.300',
+                  '&:hover': { 
+                    color: 'error.main',
+                    borderColor: 'error.main' 
+                  }
+                }}
+              />
             </Box>
           )}
         </Paper>

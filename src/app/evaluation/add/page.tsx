@@ -37,15 +37,14 @@ import { useSession } from 'next-auth/react';
 import Layout from '../../components/Layout';
 import { useSnackbar } from '../../../contexts/SnackbarContext';
 
-interface VendorOption {
-  code: string;
-  name: string;
-  fullName: string;
-  address: string;
-  group: string;
-  purchaseOrg: string;
-  email: string;
-  telephone: string;
+interface SubcontractorOption {
+  id: number;
+  subcontractorCode: string;
+  subcontractorName: string;
+  contactPerson?: string | null;
+  phone?: string | null;
+  address?: string | null;
+  isActive: boolean;
 }
 
 interface FormData {
@@ -83,17 +82,11 @@ export default function AddEvaluationPage() {
   const [loading, setLoading] = useState(false);
   const [errors, setErrors] = useState<Record<string, string>>({});
   const [licensePlateFormatValid, setLicensePlateFormatValid] = useState(true);
-  const [vendorOptions, setVendorOptions] = useState<VendorOption[]>([]);
-  const [vendorLoading, setVendorLoading] = useState(false);
-  const [selectedVendor, setSelectedVendor] = useState<VendorOption | null>(null);
-  const [vendorSearch, setVendorSearch] = useState('');
-  const [searchResults, setSearchResults] = useState<VendorOption[]>([]);
-  const [isSearching, setIsSearching] = useState(false);
+  const [subcontractorOptions, setSubcontractorOptions] = useState<SubcontractorOption[]>([]);
+  const [subcontractorLoading, setSubcontractorLoading] = useState(false);
+  const [selectedSubcontractor, setSelectedSubcontractor] = useState<SubcontractorOption | null>(null);
+  const [subcontractorSearch, setSubcontractorSearch] = useState('');
   const [damageScore, setDamageScore] = useState<number | null>(null);
-  
-  // Pagination states
-  const [vendorPage, setVendorPage] = useState(1);
-  const [vendorHasMore, setVendorHasMore] = useState(true);
   const [vehicleHistory, setVehicleHistory] = useState<{
     damageCount: number;
     totalDamageValue: number;
@@ -104,46 +97,36 @@ export default function AddEvaluationPage() {
     isLoadingHistory: false
   });
 
-  // Fetch vendor options with pagination
-  const fetchVendors = async (page: number = 1, append: boolean = false) => {
-    setVendorLoading(true);
+  // Fetch subcontractor options
+  const fetchSubcontractors = async (search: string = '') => {
+    setSubcontractorLoading(true);
     
     try {
-      const response = await fetch(`/api/vendors/paginated?page=${page}&limit=100`);
+      const params = new URLSearchParams({
+        search: search,
+      });
+      // ไม่ส่ง showInactive เพื่อให้แสดงเฉพาะ active (default)
+      
+      const response = await fetch(`/api/subcontractors?${params}`);
       
       if (response.ok) {
         const result = await response.json();
-        
-        if (append) {
-          setVendorOptions(prev => [...prev, ...result.data]);
-        } else {
-          setVendorOptions(result.data || []);
-        }
-        
-        setVendorHasMore(result.pagination?.hasMore || false);
-        setVendorPage(page);
+        setSubcontractorOptions(result.data || []);
       } else {
         showSnackbar('ไม่สามารถดึงข้อมูลผู้รับจ้างช่วงได้', 'error');
       }
     } catch (error: any) {
       showSnackbar('เกิดข้อผิดพลาดในการดึงข้อมูลผู้รับจ้างช่วง', 'error');
-      console.error('Vendor fetch error:', error);
+      console.error('Subcontractor fetch error:', error);
     } finally {
-      setVendorLoading(false);
+      setSubcontractorLoading(false);
     }
   };
 
-  // Load more vendors for infinite scroll
-  const loadMoreVendors = () => {
-    if (!vendorLoading && vendorHasMore) {
-      fetchVendors(vendorPage + 1, true);
-    }
-  };
-
-  // Initial vendor fetch
+  // Initial subcontractor fetch
   useEffect(() => {
-    fetchVendors();
-  }, [showSnackbar]);
+    fetchSubcontractors();
+  }, []);
 
   // ตรวจสอบรูปแบบทะเบียนรถไทย
   const validateThaiLicensePlate = (licensePlate: string): boolean => {
@@ -170,40 +153,18 @@ export default function AddEvaluationPage() {
     return () => clearTimeout(timeoutId);
   }, [formData.vehiclePlate]);
 
-  // Search vendors real-time
-  const searchVendors = async (searchTerm: string) => {
-    setVendorSearch(searchTerm);
-    
-    if (!searchTerm.trim()) {
-      setSearchResults([]);
-      setIsSearching(false);
-      return;
-    }
-
-    setIsSearching(true);
-    try {
-      const response = await fetch(`/api/vendors/search?q=${encodeURIComponent(searchTerm)}&limit=20`);
-      if (response.ok) {
-        const result = await response.json();
-        setSearchResults(result.data);
-      }
-    } catch (error) {
-      console.error('Error searching vendors:', error);
-    } finally {
-      setIsSearching(false);
-    }
-  };
-
-  // Debounced search
+  // Search subcontractors with debounce
   const [searchTimeout, setSearchTimeout] = useState<NodeJS.Timeout | null>(null);
   
-  const debouncedSearch = (searchTerm: string) => {
+  const debouncedSearchSubcontractors = (searchTerm: string) => {
+    setSubcontractorSearch(searchTerm);
+    
     if (searchTimeout) {
       clearTimeout(searchTimeout);
     }
     
     const timeout = setTimeout(() => {
-      searchVendors(searchTerm);
+      fetchSubcontractors(searchTerm);
     }, 300);
     
     setSearchTimeout(timeout);
@@ -218,24 +179,13 @@ export default function AddEvaluationPage() {
     };
   }, [searchTimeout]);
 
-  // Clear vendor search
-  const clearVendorSearch = () => {
-    setVendorSearch('');
-    setSearchResults([]);
-    setIsSearching(false);
-    // Reload vendors if needed
-    if (vendorOptions.length === 0) {
-      fetchVendors();
-    }
-  };
-
-  // Handle vendor selection
-  const handleVendorChange = (vendor: VendorOption | null) => {
-    setSelectedVendor(vendor);
-    if (vendor) {
+  // Handle subcontractor selection
+  const handleSubcontractorChange = (subcontractor: SubcontractorOption | null) => {
+    setSelectedSubcontractor(subcontractor);
+    if (subcontractor) {
       setFormData(prev => ({
         ...prev,
-        contractorName: vendor.name,
+        contractorName: subcontractor.subcontractorName,
       }));
       
       // Clear error
@@ -244,12 +194,11 @@ export default function AddEvaluationPage() {
         contractorName: '',
       }));
     } else {
-      // เมื่อ clear vendor ให้ล้างการค้นหา
       setFormData(prev => ({
         ...prev,
         contractorName: '',
       }));
-      clearVendorSearch();
+      setSubcontractorSearch('');
     }
   };
 
@@ -718,32 +667,18 @@ export default function AddEvaluationPage() {
                     gridTemplateColumns: { xs: '1fr', md: '1fr 1fr' }, 
                     gap: 2 
                   }}>
-                    {/* Vendor Dropdown */}
+                    {/* Subcontractor Dropdown */}
                     <Autocomplete
                       fullWidth
-                      options={vendorSearch.trim() ? searchResults : vendorOptions}
-                      getOptionLabel={(option) => option.fullName}
-                      value={selectedVendor}
-                      onChange={(_, newValue) => handleVendorChange(newValue)}
-                      loading={vendorLoading || isSearching}
-                      filterOptions={(options) => options}
+                      options={subcontractorOptions}
+                      getOptionLabel={(option) => `${option.subcontractorCode} - ${option.subcontractorName}`}
+                      value={selectedSubcontractor}
+                      onChange={(_, newValue) => handleSubcontractorChange(newValue)}
+                      loading={subcontractorLoading}
                       onInputChange={(event, newInputValue) => {
                         if (event && event.type === 'change') {
-                          debouncedSearch(newInputValue);
+                          debouncedSearchSubcontractors(newInputValue);
                         }
-                      }}
-                      ListboxProps={vendorSearch.trim() ? {} : {
-                        onScroll: (event: React.SyntheticEvent) => {
-                          const listboxNode = event.currentTarget;
-                          if (
-                            listboxNode.scrollTop + listboxNode.clientHeight >=
-                            listboxNode.scrollHeight - 1 &&
-                            vendorHasMore &&
-                            !vendorLoading
-                          ) {
-                            loadMoreVendors();
-                          }
-                        },
                       }}
                       renderInput={(params) => (
                         <TextField
@@ -752,23 +687,21 @@ export default function AddEvaluationPage() {
                           placeholder="ค้นหารหัสหรือชื่อผู้รับจ้างช่วง..."
                           size="small"
                           error={!!errors.contractorName}
-                          
                           required
-                            InputProps={{
-                              ...params.InputProps,
-                              startAdornment: (
-                                <InputAdornment position="start">
-                                  <BusinessIcon />
-                                </InputAdornment>
-                              ),
-                              endAdornment: (
-                                <>
-                                  
-                                  {(vendorLoading || isSearching) ? <CircularProgress color="inherit" size={20} /> : null}
-                                  {params.InputProps.endAdornment}
-                                </>
-                              ),
-                            }}
+                          InputProps={{
+                            ...params.InputProps,
+                            startAdornment: (
+                              <InputAdornment position="start">
+                                <BusinessIcon />
+                              </InputAdornment>
+                            ),
+                            endAdornment: (
+                              <>
+                                {subcontractorLoading ? <CircularProgress color="inherit" size={20} /> : null}
+                                {params.InputProps.endAdornment}
+                              </>
+                            ),
+                          }}
                         />
                       )}
                       renderOption={(props, option) => {
@@ -777,37 +710,33 @@ export default function AddEvaluationPage() {
                           <Box component="li" key={key} {...otherProps}>
                             <Box>
                               <Typography variant="body2" sx={{ fontWeight: 600 }}>
-                                {option.code}
+                                {option.subcontractorCode}
                               </Typography>
                               <Typography variant="body2" color="text.secondary">
-                                {option.name}
+                                {option.subcontractorName}
                               </Typography>
-                              {option.address && (
+                              {option.contactPerson && (
                                 <Typography variant="caption" color="text.secondary" sx={{ display: 'block' }}>
-                                  {option.address}
+                                  ผู้ติดต่อ: {option.contactPerson}
                                 </Typography>
                               )}
-                              {vendorSearch.trim() && (
-                                <Typography variant="caption" color="primary">
-                                  ผลการค้นหา
+                              {option.phone && (
+                                <Typography variant="caption" color="text.secondary" sx={{ display: 'block' }}>
+                                  โทร: {option.phone}
                                 </Typography>
                               )}
                             </Box>
                           </Box>
                         );
                       }}
-                      noOptionsText={
-                        vendorSearch.trim() ? 
-                          (isSearching ? 'กำลังค้นหา...' : 'ไม่พบผลการค้นหา') : 
-                          'ไม่มีข้อมูล'
-                      }
+                      noOptionsText={subcontractorLoading ? 'กำลังโหลด...' : 'ไม่พบข้อมูล'}
                     />
 
                     {/* ชื่อผู้รับจ้างช่วงที่เลือก (แสดงผลเสมอ) */}
                     <TextField
                       fullWidth
                       label="ชื่อผู้รับจ้างช่วงที่เลือก"
-                      value={selectedVendor ? selectedVendor.fullName : ''}
+                      value={selectedSubcontractor ? selectedSubcontractor.subcontractorName : ''}
                       size="small"
                       disabled
                       placeholder="ยังไม่ได้เลือกผู้รับจ้างช่วง"

@@ -35,6 +35,8 @@ import {
   RateReview,
   Calculate,
   Money as MoneyIcon,
+  LocalShipping,
+  Help,
 } from '@mui/icons-material';
 import { useNavigation } from './NavigationContext';
 import { useRouter, usePathname } from 'next/navigation';
@@ -76,6 +78,7 @@ const VerticalNav: React.FC = () => {
       title: 'Evaluation',
       items: [
         { icon: <Assessment />, id: 'evaluation', label: 'แบบประเมิน', href: '/evaluation' },
+        { icon: <RateReview />, id: 'evaluation-report', label: 'รายงานผลการประเมิน', href: '/evaluation/report' },
       ]
     },
     {
@@ -85,6 +88,8 @@ const VerticalNav: React.FC = () => {
         { icon: <PersonOutline />, id: 'drivers', label: 'จัดการคนขับ', href: '/drivers' },
         { icon: <Business />, id: 'customers', label: 'จัดการลูกค้า', href: '/customers' },
         { icon: <Inventory />, id: 'items', label: 'จัดการพัสดุ', href: '/items' },
+        { icon: <LocalShipping />, id: 'subcontractors', label: 'จัดการผู้รับจ้างช่วง', href: '/settings/subcontractors' },
+        { icon: <Help />, id: 'help', label: 'คู่มือการใช้งาน', href: '/help' },
       ]
     },
     ...(session?.user?.role === 'admin' ? [{
@@ -92,7 +97,9 @@ const VerticalNav: React.FC = () => {
       items: [
         { icon: <ManageAccounts />, id: 'users', label: 'จัดการผู้ใช้งาน', href: '/users' },
         { icon: <Settings />, id: 'settings', label: 'ตั้งค่าระบบ', href: '/settings' },
+        
         { icon: <Calculate />, id: 'auto-distance', label: 'คำนวณระยะทางอัตโนมัติ', href: '/customers/auto-distance' },
+        
       ]
     }] : [])
   ];
@@ -168,6 +175,16 @@ const VerticalNav: React.FC = () => {
     
     // กรณีพิเศษ: เฉพาะหน้า auto-distance ไม่ควรให้ customers active
     if (pathname === '/customers/auto-distance' && item.href === '/customers') {
+      return false;
+    }
+    
+    // กรณีพิเศษ: ถ้าเป็น /evaluation และมีหน้า nested อื่น ๆ ให้ไม่ active parent
+    // เช่น /evaluation/report ไม่ควรให้ /evaluation active
+    if (item.href === '/evaluation' && pathname.startsWith('/evaluation/')) {
+      return false;
+    }
+
+    if (item.href === '/settings' && pathname.startsWith('/settings/')) {
       return false;
     }
     

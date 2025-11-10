@@ -422,7 +422,7 @@ export default function AddFuelRecord() {
                               {option.licensePlate || 'ไม่มีทะเบียน'}
                             </Typography>
                             <Typography variant="caption" color="text.secondary">
-                              {option.brand} {option.model} - {option.mainDriver?.driverName || 'ไม่มีคนขับ'} , {option.backupDriver?.driverName || 'ไม่มีคนขับรอง'}
+                              {option.vehicleType} - {option.brand} {option.model} - {option.mainDriver?.driverName || 'ไม่มีคนขับ'} , {option.backupDriver?.driverName || 'ไม่มีคนขับรอง'}
                             </Typography>
                           </Box>
                         </Box>
@@ -1081,12 +1081,17 @@ export default function AddFuelRecord() {
                   <TextField
                     label="ปริมาณน้ำมัน *"
                     value={formData.fuelAmount}
-                    onChange={(e) => handleChange('fuelAmount', e.target.value)}
-                    type="number"
+                    onChange={(e) => {
+                      const value = e.target.value;
+                      if (value === '' || /^\d*\.?\d*$/.test(value)) {
+                        handleChange('fuelAmount', value);
+                      }
+                    }}
+                    type="text"
                     required
                     fullWidth
                     size="small"
-                    inputProps={{ min: 0, step: 0.01 }}
+                    inputProps={{ inputMode: 'decimal' }}
                     InputProps={{
                       endAdornment: <InputAdornment position="end">ลิตร</InputAdornment>,
                     }}
@@ -1097,11 +1102,16 @@ export default function AddFuelRecord() {
                   <TextField
                     label="เลขไมล์"
                     value={formData.odometer}
-                    onChange={(e) => handleChange('odometer', e.target.value)}
-                    type="number"
+                    onChange={(e) => {
+                      const value = e.target.value;
+                      if (value === '' || /^\d+$/.test(value)) {
+                        handleChange('odometer', value);
+                      }
+                    }}
+                    type="text"
                     fullWidth
                     size="small"
-                    inputProps={{ min: 0 }}
+                    inputProps={{ inputMode: 'numeric' }}
                     InputProps={{
                       endAdornment: <InputAdornment position="end">กม.</InputAdornment>,
                     }}

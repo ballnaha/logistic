@@ -11,6 +11,8 @@ export async function GET(request: NextRequest) {
     const limit = parseInt(searchParams.get('limit') || '10');
     const search = searchParams.get('search') || '';
     const vehicleId = searchParams.get('vehicleId') || '';
+    const month = searchParams.get('month') || '';
+    const year = searchParams.get('year') || '';
     const sortBy = searchParams.get('sortBy') || 'createdAt';
     const sortOrder = searchParams.get('sortOrder') || 'desc';
     const startDate = searchParams.get('startDate') || '';
@@ -49,8 +51,33 @@ export async function GET(request: NextRequest) {
       orderByCondition[sortBy] = sortOrder === 'desc' ? 'desc' : 'asc';
     }
 
-    // เพิ่มช่วงวันที่ ถ้าระบุ (YYYY-MM-DD) ให้ครอบคลุมทั้งวันตาม timezone local
-    if (startDate && endDate) {
+    // Filter by month and year
+    if (month || year) {
+      const filterYear = year ? parseInt(year) : new Date().getFullYear();
+      
+      if (month) {
+        // Filter by specific month and year
+        const filterMonth = parseInt(month);
+        const startDate = new Date(filterYear, filterMonth - 1, 1, 0, 0, 0, 0);
+        const endDate = new Date(filterYear, filterMonth, 0, 23, 59, 59, 999); // Last day of month
+        
+        whereCondition.fuelDate = {
+          gte: startDate,
+          lte: endDate,
+        };
+      } else if (year) {
+        // Filter by year only
+        const startDate = new Date(filterYear, 0, 1, 0, 0, 0, 0);
+        const endDate = new Date(filterYear, 11, 31, 23, 59, 59, 999);
+        
+        whereCondition.fuelDate = {
+          gte: startDate,
+          lte: endDate,
+        };
+      }
+    }
+    // เพิ่มช่วงวันที่ ถ้าระบุ (YYYY-MM-DD) ให้ครอบคลุมทั้งวันตาม timezone local (override month/year if provided)
+    else if (startDate && endDate) {
       const [sy, sm, sd] = startDate.split('-').map(Number);
       const [ey, em, ed] = endDate.split('-').map(Number);
       const startDateTime = new Date(sy, (sm || 1) - 1, sd || 1, 0, 0, 0, 0);

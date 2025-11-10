@@ -21,6 +21,8 @@ import {
   Assessment as ReportsIcon,
   Assessment as AssessmentIcon,
   Inventory as InventoryIcon,
+  LocalShipping as LocalShippingIcon,
+  Help,
 } from '@mui/icons-material';
 
 interface BreadcrumbItem {
@@ -76,6 +78,15 @@ const Breadcrumbs: React.FC = () => {
             label: 'ลูกค้า',
             href: isLast ? undefined : '/customers',
             icon: <CustomerIcon sx={{ fontSize: 16 }} />,
+            isActive: isLast,
+          });
+          break;
+
+        case 'subcontractors':
+          breadcrumbs.push({
+            label: 'ผู้รับจ้างช่วง',
+            href: isLast ? undefined : '/settings/subcontractors',
+            icon: <LocalShippingIcon sx={{ fontSize: 16 }} />,
             isActive: isLast,
           });
           break;
@@ -221,6 +232,15 @@ const Breadcrumbs: React.FC = () => {
             label: 'ตั้งค่าระบบ',
             href: isLast ? undefined : '/settings',
             icon: <ReportsIcon sx={{ fontSize: 16 }} />,
+            isActive: isLast,
+          });
+          break;
+
+        case 'help':
+          breadcrumbs.push({
+            label: 'คู่มือการใช้งาน',
+            href: isLast ? undefined : '/help',
+            icon: <Help sx={{ fontSize: 16 }} />,
             isActive: isLast,
           });
           break;

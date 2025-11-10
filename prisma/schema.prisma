@@ -160,6 +160,7 @@ model TripRecord {
   loadingDate       DateTime?  @map("loading_date")
   repairCost        Decimal?   @map("repair_cost") @db.Decimal(10, 2)
   tollFee           Decimal?   @map("toll_fee") @db.Decimal(10, 2)
+  tripFee           Decimal?   @default(0) @map("trip_fee") @db.Decimal(10, 2)
   documentNumber    String?    @map("document_number") @db.VarChar(100)
   driverLicense     String?    @map("driver_license") @db.VarChar(50)
   tripItems         TripItem[]
@@ -218,4 +219,21 @@ model SystemSettings {
   updatedAt   DateTime @updatedAt @map("updated_at")
 
   @@map("system_settings")
+}
+
+model Subcontractor {
+  id                 Int      @id @default(autoincrement())
+  subcontractorCode  String   @unique @map("subcontractor_code") @db.VarChar(50)
+  subcontractorName  String   @map("subcontractor_name") @db.VarChar(255)
+  contactPerson      String?  @map("contact_person") @db.VarChar(100)
+  phone              String?  @map("phone") @db.VarChar(20)
+  address            String?  @map("address") @db.Text
+  remark             String?  @map("remark") @db.Text
+  isActive           Boolean  @default(true) @map("is_active")
+  createdAt          DateTime @default(now()) @map("created_at")
+  updatedAt          DateTime @updatedAt @map("updated_at")
+  createdBy          String?  @map("created_by") @db.VarChar(50)
+  updatedBy          String?  @map("updated_by") @db.VarChar(50)
+
+  @@map("subcontractors")
 }

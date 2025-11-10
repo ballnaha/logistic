@@ -81,6 +81,8 @@ export default function EvaluationReportPage() {
   const [selectedVendor, setSelectedVendor] = useState<string>('');
   const [selectedMonth, setSelectedMonth] = useState<string>(new Date().getMonth() + 1 + '');
   const [selectedYear, setSelectedYear] = useState<string>(new Date().getFullYear().toString());
+  const [selectedVehiclePlate, setSelectedVehiclePlate] = useState<string>('');
+  const [allEvaluations, setAllEvaluations] = useState<any[]>([]);
   const [reportData, setReportData] = useState<ReportSummary | null>(null);
 
 
@@ -123,6 +125,7 @@ export default function EvaluationReportPage() {
         const evaluationResponse = await fetch('/api/evaluation');
         if (evaluationResponse.ok) {
           const evaluations = await evaluationResponse.json();
+          setAllEvaluations(evaluations); // เก็บข้อมูลทั้งหมดไว้
           
           // ดึงรายชื่อ vendor ที่ไม่ซ้ำจาก evaluation
           const uniqueVendors = Array.from(new Set(
@@ -151,11 +154,115 @@ export default function EvaluationReportPage() {
     fetchVendors();
   }, [showSnackbar]);
 
+  // Get available contractors (filtered by selected month/year)
+  const getAvailableContractors = () => {
+    let filtered = allEvaluations;
+    
+    // Filter by date
+    if (selectedMonth && selectedYear) {
+      filtered = filtered.filter(evaluation => {
+        const evalDate = new Date(evaluation.evaluationDate);
+        const evalMonth = (evalDate.getMonth() + 1).toString();
+        const evalYear = evalDate.getFullYear().toString();
+        return evalMonth === selectedMonth && evalYear === selectedYear;
+      });
+    } else if (selectedYear) {
+      filtered = filtered.filter(evaluation => {
+        const evalDate = new Date(evaluation.evaluationDate);
+        const evalYear = evalDate.getFullYear().toString();
+        return evalYear === selectedYear;
+      });
+    }
+
+    const contractors = filtered.map(e => e.contractorName).filter(Boolean);
+    const uniqueContractors = Array.from(new Set(contractors)).sort((a, b) => a.localeCompare(b));
+    
+    // แปลงเป็น format ที่ต้องการ
+    return uniqueContractors.map((name, index: number) => ({
+      code: `vendor_${index}`,
+      name: name as string,
+      fullName: name as string
+    }));
+  };
+
+  // Get available vehicle plates (cascade based on contractor and date selection)
+  const getAvailableVehiclePlates = () => {
+    let filtered = allEvaluations;
+    
+    // Filter by date
+    if (selectedMonth && selectedYear) {
+      filtered = filtered.filter(evaluation => {
+        const evalDate = new Date(evaluation.evaluationDate);
+        const evalMonth = (evalDate.getMonth() + 1).toString();
+        const evalYear = evalDate.getFullYear().toString();
+        return evalMonth === selectedMonth && evalYear === selectedYear;
+      });
+    } else if (selectedYear) {
+      filtered = filtered.filter(evaluation => {
+        const evalDate = new Date(evaluation.evaluationDate);
+        const evalYear = evalDate.getFullYear().toString();
+        return evalYear === selectedYear;
+      });
+    }
+
+    // Filter by contractor if selected
+    if (selectedVendor) {
+      const availableContractors = getAvailableContractors();
+      const selectedVendorData = availableContractors.find(v => v.code === selectedVendor);
+      if (selectedVendorData) {
+        filtered = filtered.filter(evaluation => 
+          evaluation.contractorName === selectedVendorData.name
+        );
+      }
+    }
+
+    const plates = filtered.map(e => e.vehiclePlate).filter(Boolean);
+    return Array.from(new Set(plates)).sort((a, b) => a.localeCompare(b));
+  };
+
+  // Reset contractor and vehicle plate when date filter changes
+  useEffect(() => {
+    const availableContractors = getAvailableContractors();
+    const contractorCodes = availableContractors.map(c => c.code);
+    
+    // If selected contractor is not in the available list, reset it
+    if (selectedVendor && !contractorCodes.includes(selectedVendor)) {
+      setSelectedVendor('');
+      setSelectedVehiclePlate('');
+    } else if (selectedVendor) {
+      // If contractor is still valid, check vehicle plate
+      const availablePlates = getAvailableVehiclePlates();
+      if (selectedVehiclePlate && !availablePlates.includes(selectedVehiclePlate)) {
+        setSelectedVehiclePlate('');
+      }
+    }
+    
+    // Reset report data when filter changes
+    setReportData(null);
+  }, [selectedMonth, selectedYear]);
+
+  // Reset vehicle plate and report data when contractor changes
+  useEffect(() => {
+    const availablePlates = getAvailableVehiclePlates();
+    if (selectedVehiclePlate && !availablePlates.includes(selectedVehiclePlate)) {
+      setSelectedVehiclePlate('');
+    }
+    
+    // Reset report data when contractor changes
+    setReportData(null);
+  }, [selectedVendor]);
+  
+  // Reset report data when vehicle plate changes
+  useEffect(() => {
+    setReportData(null);
+  }, [selectedVehiclePlate]);
+
   // Handle filter reset
   const handleResetFilter = () => {
     setSelectedVendor('');
     setSelectedMonth((new Date().getMonth() + 1).toString());
     setSelectedYear(new Date().getFullYear().toString());
+    setSelectedVehiclePlate('');
     setReportData(null);
   };
 
@@ -175,17 +282,20 @@ export default function EvaluationReportPage() {
       }
 
       const evaluations = await response.json();
-      const selectedVendorData = vendorOptions.find(v => v.code === selectedVendor);
+      const availableContractors = getAvailableContractors();
+      const selectedVendorData = availableContractors.find(v => v.code === selectedVendor);
       
-      // Filter evaluations by vendor, month, and year
-      const filteredEvaluations = evaluations.filter((evaluation: any) => {
+      // Filter evaluations by vendor, month, year, and optionally vehicle plate
+      let filteredEvaluations = evaluations.filter((evaluation: any) => {
         const evalDate = new Date(evaluation.evaluationDate);
         const evalMonth = evalDate.getMonth() + 1;
         const evalYear = evalDate.getFullYear();
         
-        return evaluation.contractorName === selectedVendorData?.name &&
-               evalMonth.toString() === selectedMonth &&
-               evalYear.toString() === selectedYear;
+        const matchesVendor = evaluation.contractorName === selectedVendorData?.name;
+        const matchesDate = evalMonth.toString() === selectedMonth && evalYear.toString() === selectedYear;
+        const matchesVehicle = !selectedVehiclePlate || evaluation.vehiclePlate === selectedVehiclePlate;
+        
+        return matchesVendor && matchesDate && matchesVehicle;
       });
 
       // Group by vehicle plate
@@ -303,8 +413,9 @@ export default function EvaluationReportPage() {
     await EvaluationReportPDFGenerator.printPDF({
       elementId: 'report-content',
       reportData,
-      vendorOptions,
+      vendorOptions: getAvailableContractors(),
       selectedVendor,
+      selectedVehiclePlate,
       selectedMonth,
       selectedYear,
       months,
@@ -330,8 +441,9 @@ export default function EvaluationReportPage() {
       elementId: 'report-content',
       filename,
       reportData,
-      vendorOptions,
+      vendorOptions: getAvailableContractors(),
       selectedVendor,
+      selectedVehiclePlate,
       selectedMonth,
       selectedYear,
       months,
@@ -353,14 +465,7 @@ export default function EvaluationReportPage() {
               รายงานสรุปแบบประเมิน
             </Typography>
           </Box>
-          <Button
-            variant="outlined"
-            startIcon={<BackIcon />}
-            href="/evaluation"
-            sx={{ borderRadius: 2 }}
-          >
-            กลับ
-          </Button>
+          
         </Box>
 
         {/* Filters */}
@@ -382,12 +487,35 @@ export default function EvaluationReportPage() {
                 <Select
                   value={selectedVendor}
                   label="ผู้รับจ้างช่วง"
-                  onChange={(e) => setSelectedVendor(e.target.value)}
+                  onChange={(e) => {
+                    setSelectedVendor(e.target.value);
+                    // Reset vehicle plate when contractor changes
+                    setSelectedVehiclePlate('');
+                  }}
                   disabled={vendorLoading}
                 >
-                  {vendorOptions.map((vendor) => (
+                  {getAvailableContractors().map((vendor) => (
                     <MenuItem key={vendor.code} value={vendor.code}>
                       {vendor.name}
+                    </MenuItem>
+                  ))}
+                </Select>
+              </FormControl>
+            </Box>
+
+            <Box sx={{ minWidth: 150 }}>
+              <FormControl fullWidth size="small">
+                <InputLabel>ทะเบียนรถ</InputLabel>
+                <Select
+                  value={selectedVehiclePlate}
+                  label="ทะเบียนรถ"
+                  onChange={(e) => setSelectedVehiclePlate(e.target.value)}
+                  disabled={!selectedVendor}
+                >
+                  <MenuItem value="">ทั้งหมด</MenuItem>
+                  {getAvailableVehiclePlates().map((plate) => (
+                    <MenuItem key={plate} value={plate}>
+                      {plate}
                     </MenuItem>
                   ))}
                 </Select>
@@ -435,13 +563,13 @@ export default function EvaluationReportPage() {
                 disabled={loading || vendorLoading}
                 sx={{ borderRadius: 1, px: 3 }}
               >
-                {loading ? <CircularProgress size={20} /> : 'สร้างรายงาน'}
+                {loading ? 'กำลังสร้าง ...' : 'สร้างรายงาน'}
               </Button>
             </Box>
           </Box>
 
           {/* Active Filters */}
-          {(selectedVendor || selectedMonth || selectedYear !== new Date().getFullYear().toString()) && (
+          {(selectedVendor || selectedVehiclePlate || selectedMonth || selectedYear !== new Date().getFullYear().toString()) && (
             <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 1, alignItems: 'center', mt: 2, pt: 2, borderTop: '1px solid', borderTopColor: 'grey.200' }}>
               <Typography variant="caption" color="text.secondary" sx={{ mr: 1 }}>
                 ตัวกรอง:
@@ -449,9 +577,22 @@ export default function EvaluationReportPage() {
               
               {selectedVendor && (
                 <Chip
-                  label={`ผู้รับจ้างช่วง: ${vendorOptions.find(v => v.code === selectedVendor)?.name || selectedVendor}`}
-                  onDelete={() => setSelectedVendor('')}
+                  label={`ผู้รับจ้างช่วง: ${getAvailableContractors().find(v => v.code === selectedVendor)?.name || selectedVendor}`}
+                  onDelete={() => {
+                    setSelectedVendor('');
+                    setSelectedVehiclePlate('');
+                  }}
                   color="primary"
+                  variant="outlined"
+                  size="small"
+                />
+              )}
+
+              {selectedVehiclePlate && (
+                <Chip
+                  label={`ทะเบียนรถ: ${selectedVehiclePlate}`}
+                  onDelete={() => setSelectedVehiclePlate('')}
+                  color="info"
                   variant="outlined"
                   size="small"
                 />

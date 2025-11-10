@@ -18,6 +18,8 @@ import {
   Alert,
   Autocomplete,
   Avatar,
+  Checkbox,
+  FormControlLabel,
 } from '@mui/material';
 import {
   Save as SaveIcon,
@@ -197,6 +199,9 @@ export default function AddTripRecordPage() {
   const [calculatedDistanceFromOdometer, setCalculatedDistanceFromOdometer] = useState<number>(0);
   const [distanceRate, setDistanceRate] = useState<number>(0); // อัตราค่าระยะทางต่อกิโลเมตร
   const [calculatedDistanceCost, setCalculatedDistanceCost] = useState<number>(0); // ค่าระยะทางที่คำนวณได้
+  const [includeTripFee, setIncludeTripFee] = useState<boolean>(true); // ค่าเที่ยว default checked
+  const [tripFeeRate, setTripFeeRate] = useState<number>(0); // อัตราค่าเที่ยว (ดึงจาก system_settings)
+  const [tripFeeLoaded, setTripFeeLoaded] = useState<boolean>(false); // สถานะการโหลดค่าเที่ยว
 
   // Fetch options
   const fetchOptions = async () => {
@@ -226,9 +231,8 @@ export default function AddTripRecordPage() {
       }
     } catch (error) {
       showSnackbar('เกิดข้อผิดพลาดในการโหลดข้อมูล', 'error');
-    } finally {
-      setLoading(false);
     }
+    // ไม่ต้อง setLoading(false) ที่นี่ เพราะจะรอให้โหลดค่าเที่ยวเสร็จก่อน
   };
 
   // Calculate days and allowance when dates change
@@ -540,6 +544,7 @@ export default function AddTripRecordPage() {
           fuelCost: formData.fuelCost || null,
           tollFee: formData.tollFee || null,
           repairCost: formData.repairCost || null,
+          tripFee: includeTripFee ? tripFeeRate.toString() : '0',
           tripItems: tripItems.filter(item => item.itemId > 0).map(item => ({
             itemId: item.itemId,
             quantity: item.quantity,
@@ -624,9 +629,10 @@ export default function AddTripRecordPage() {
     const repair = parseFloat(formData.repairCost) || 0;
     const distanceCost = calculatedDistanceCost || 0; // ค่าระยะทาง
     const itemsValue = calculateTotalItemsValue();
+    const tripFee = includeTripFee ? tripFeeRate : 0; // ค่าเที่ยว
     
-    // ค่าใช้จ่ายที่ต้องจ่ายพนักงานขับรถ = ค่าเบี้ยเลี้ยง + ค่าพัสดุ + ค่าระยะทาง
-    const driverExpenses = calculatedAllowance + itemsValue + distanceCost;
+    // ค่าใช้จ่ายที่ต้องจ่ายพนักงานขับรถ = ค่าเบี้ยเลี้ยง + ค่าพัสดุ + ค่าระยะทาง + ค่าเที่ยว
+    const driverExpenses = calculatedAllowance + itemsValue + distanceCost + tripFee;
     
     // ค่าใช้จ่ายของบริษัท = ค่าซ่อมแซม + ค่าทางด่วน + ค่าน้ำมัน + ค่าเช็คระยะ
     const companyExpenses = repair + toll + fuel + distanceCheck;
@@ -636,6 +642,7 @@ export default function AddTripRecordPage() {
       costs: distanceCheck + fuel + toll + repair + distanceCost,
       distanceCost, // เพิ่มค่าระยะทางแยกออกมา
       itemsValue,
+      tripFee, // เพิ่มค่าเที่ยวแยกออกมา
       total: distanceCheck + fuel + toll + repair + distanceCost + itemsValue,
       
       // หมวดหมู่ใหม่
@@ -676,11 +683,36 @@ export default function AddTripRecordPage() {
         setDistanceRate(1.2);
       }
     };
+    // โหลดค่าเที่ยวเริ่มต้น
+    const loadInitialTripFeeRate = async () => {
+      try {
+        const response = await fetch('/api/system-settings/trip_fee');
+        const result = await response.json();
+        if (response.ok && result.value) {
+          const rate = parseFloat(result.value);
+          if (!isNaN(rate) && rate > 0) {
+            setTripFeeRate(rate);
+          } else {
+            setTripFeeRate(30);
+          }
+        } else {
+          setTripFeeRate(30);
+        }
+      } catch (error) {
+        console.error('Error loading trip fee rate:', error);
+        // หากไม่สามารถดึงได้ ใช้ค่าเริ่มต้น 30
+        setTripFeeRate(30);
+      } finally {
+        setTripFeeLoaded(true);
+        setLoading(false);
+      }
+    };
     loadInitialAllowanceRate();
     loadInitialDistanceRate();
+    loadInitialTripFeeRate();
   }, []);
 
-  if (loading) {
+  if (loading || !tripFeeLoaded) {
     return (
       <Layout showSidebar={false}>
         <Box sx={{ display: 'flex', justifyContent: 'center', alignItems: 'center', height: '50vh' }}>
@@ -1486,11 +1518,16 @@ export default function AddTripRecordPage() {
                     <TextField
                       fullWidth
                       label="ค่าเช็คระยะ"
-                      type="number"
+                      type="text"
                       size="small"
                       value={formData.distanceCheckFee}
-                      onChange={(e) => setFormData(prev => ({ ...prev, distanceCheckFee: e.target.value }))}
-                      inputProps={{ step: "0.01", min: "0" }}
+                      onChange={(e) => {
+                        const value = e.target.value;
+                        if (value === '' || /^\d*\.?\d*$/.test(value)) {
+                          setFormData(prev => ({ ...prev, distanceCheckFee: value }));
+                        }
+                      }}
+                      inputProps={{ inputMode: 'decimal' }}
                       InputProps={{
                         endAdornment: <InputAdornment position="end">บาท</InputAdornment>,
                       }}
@@ -1500,11 +1537,16 @@ export default function AddTripRecordPage() {
                     <TextField
                       fullWidth
                       label="ค่าน้ำมันรถ"
-                      type="number"
+                      type="text"
                       size="small"
                       value={formData.fuelCost}
-                      onChange={(e) => setFormData(prev => ({ ...prev, fuelCost: e.target.value }))}
-                      inputProps={{ step: "0.01", min: "0" }}
+                      onChange={(e) => {
+                        const value = e.target.value;
+                        if (value === '' || /^\d*\.?\d*$/.test(value)) {
+                          setFormData(prev => ({ ...prev, fuelCost: value }));
+                        }
+                      }}
+                      inputProps={{ inputMode: 'decimal' }}
                       InputProps={{
                         endAdornment: <InputAdornment position="end">บาท</InputAdornment>,
                       }}
@@ -1517,11 +1559,16 @@ export default function AddTripRecordPage() {
                     <TextField
                       fullWidth
                       label="ค่าทางด่วน"
-                      type="number"
+                      type="text"
                       size="small"
                       value={formData.tollFee}
-                      onChange={(e) => setFormData(prev => ({ ...prev, tollFee: e.target.value }))}
-                      inputProps={{ step: "0.01", min: "0" }}
+                      onChange={(e) => {
+                        const value = e.target.value;
+                        if (value === '' || /^\d*\.?\d*$/.test(value)) {
+                          setFormData(prev => ({ ...prev, tollFee: value }));
+                        }
+                      }}
+                      inputProps={{ inputMode: 'decimal' }}
                       InputProps={{
                         endAdornment: <InputAdornment position="end">บาท</InputAdornment>,
                       }}
@@ -1531,17 +1578,43 @@ export default function AddTripRecordPage() {
                     <TextField
                       fullWidth
                       label="ค่าซ่อมแซม"
-                      type="number"
+                      type="text"
                       size="small"
                       value={formData.repairCost}
-                      onChange={(e) => setFormData(prev => ({ ...prev, repairCost: e.target.value }))}
-                      inputProps={{ step: "0.01", min: "0" }}
+                      onChange={(e) => {
+                        const value = e.target.value;
+                        if (value === '' || /^\d*\.?\d*$/.test(value)) {
+                          setFormData(prev => ({ ...prev, repairCost: value }));
+                        }
+                      }}
+                      inputProps={{ inputMode: 'decimal' }}
                       InputProps={{
                         endAdornment: <InputAdornment position="end">บาท</InputAdornment>,
                       }}
                     />
                   </Box>
 
+                  
+
+                </Box>
+                
+                {/* Trip Fee Checkbox */}
+                <Box sx={{ mb: 3 }}>
+                  <FormControlLabel
+                    control={
+                      <Checkbox
+                        checked={includeTripFee}
+                        onChange={(e) => setIncludeTripFee(e.target.checked)}
+                        color="primary"
+                        
+                      />
+                    }
+                    label={
+                      <Typography variant="body2">
+                        คิดค่าเที่ยว {tripFeeRate} บาท
+                      </Typography>
+                    }
+                  />
                 </Box>
 
                 <Divider sx={{ my: 3 }} />
@@ -1557,11 +1630,16 @@ export default function AddTripRecordPage() {
                       ref={odometerBeforeRef}
                       fullWidth
                       label="เลขไมล์ก่อนไป"
-                      type="number"
+                      type="text"
                       size="small"
                       value={formData.odometerBefore}
-                      onChange={(e) => setFormData(prev => ({ ...prev, odometerBefore: e.target.value }))}
-                      inputProps={{ min: "0" }}
+                      onChange={(e) => {
+                        const value = e.target.value;
+                        if (value === '' || /^\d+$/.test(value)) {
+                          setFormData(prev => ({ ...prev, odometerBefore: value }));
+                        }
+                      }}
+                      inputProps={{ inputMode: 'numeric' }}
                       helperText="บันทึกเลขไมล์ก่อนออกเดินทาง"
                       InputProps={{
                         endAdornment: <InputAdornment position="end">กม.</InputAdornment>,
@@ -1573,11 +1651,16 @@ export default function AddTripRecordPage() {
                       ref={odometerAfterRef}
                       fullWidth
                       label="เลขไมล์หลังกลับ"
-                      type="number"
+                      type="text"
                       size="small"
                       value={formData.odometerAfter}
-                      onChange={(e) => setFormData(prev => ({ ...prev, odometerAfter: e.target.value }))}
-                      inputProps={{ min: "0" }}
+                      onChange={(e) => {
+                        const value = e.target.value;
+                        if (value === '' || /^\d+$/.test(value)) {
+                          setFormData(prev => ({ ...prev, odometerAfter: value }));
+                        }
+                      }}
+                      inputProps={{ inputMode: 'numeric' }}
                       helperText="บันทึกเลขไมล์หลังกลับ"
                       InputProps={{
                         endAdornment: <InputAdornment position="end">กม.</InputAdornment>,
@@ -1591,11 +1674,16 @@ export default function AddTripRecordPage() {
                       ref={actualDistanceRef}
                       fullWidth
                       label="ระยะทางจริง (กิโลเมตร)"
-                      type="number"
+                      type="text"
                       size="small"
                       value={formData.actualDistance}
-                      onChange={(e) => setFormData(prev => ({ ...prev, actualDistance: e.target.value }))}
-                      inputProps={{ step: "0.01", min: "0" }}
+                      onChange={(e) => {
+                        const value = e.target.value;
+                        if (value === '' || /^\d*\.?\d*$/.test(value)) {
+                          setFormData(prev => ({ ...prev, actualDistance: value }));
+                        }
+                      }}
+                      inputProps={{ inputMode: 'decimal' }}
                       helperText="ระบุระยะทางจริงที่ใช้ในการเดินทาง (ไม่บังคับ)"
                       InputProps={{
                         endAdornment: <InputAdornment position="end">กม.</InputAdornment>,
@@ -2068,11 +2156,16 @@ export default function AddTripRecordPage() {
                         <TextField
   fullWidth
   label="จำนวน"
-  type="number"
+  type="text"
   size="small"
   value={tripItem.quantity}
-  onChange={(e) => updateTripItem(tripItem.id!, 'quantity', e.target.value)}
-  inputProps={{ step: "0.01", min: "0" }}
+  onChange={(e) => {
+    const value = e.target.value;
+    if (value === '' || /^\d*\.?\d*$/.test(value)) {
+      updateTripItem(tripItem.id!, 'quantity', value);
+    }
+  }}
+  inputProps={{ inputMode: 'decimal' }}
   sx={{
     "& .MuiInputLabel-root": {
       fontSize: 13, // 👈 ปรับขนาด label
@@ -2102,11 +2195,16 @@ export default function AddTripRecordPage() {
                         <TextField
                           fullWidth
                           label="ราคาต่อหน่วย"
-                          type="number"
+                          type="text"
                           size="small"
                           value={tripItem.unitPrice}
-                          onChange={(e) => updateTripItem(tripItem.id!, 'unitPrice', e.target.value)}
-                          inputProps={{ step: "0.01", min: "0" }}
+                          onChange={(e) => {
+                            const value = e.target.value;
+                            if (value === '' || /^\d*\.?\d*$/.test(value)) {
+                              updateTripItem(tripItem.id!, 'unitPrice', value);
+                            }
+                          }}
+                          inputProps={{ inputMode: 'decimal' }}
                           InputProps={{
                             readOnly: true,
                             endAdornment: <InputAdornment position="end">บาท</InputAdornment>,
@@ -2123,7 +2221,7 @@ export default function AddTripRecordPage() {
                         <TextField
                           fullWidth
                           label="ราคารวม"
-                          type="number"
+                          type="text"
                           size="small"
                           value={parseFloat(tripItem.totalPrice).toFixed(2)}
                           InputProps={{
@@ -2354,6 +2452,46 @@ export default function AddTripRecordPage() {
                       </Paper>
                     );
                   })()}
+
+                  {/* Trip Fee Card */}
+                  {includeTripFee && (
+                    <Paper sx={{ 
+                      p: 2, 
+                      borderRadius: 2, 
+                      bgcolor: 'warning.50',
+                      border: '2px solid',
+                      borderColor: 'warning.200',
+                    }}>
+                      <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, mb: 1 }}>
+                        <Box sx={{ 
+                          width: 24, 
+                          height: 24, 
+                          borderRadius: '50%', 
+                          bgcolor: 'warning.main',
+                          display: 'flex', 
+                          alignItems: 'center', 
+                          justifyContent: 'center',
+                          color: 'white',
+                          fontSize: '12px'
+                        }}>
+                          🚗
+                        </Box>
+                        <Typography variant="subtitle2" color="text.secondary">
+                          ค่าเที่ยว
+                        </Typography>
+                      </Box>
+                      <Typography 
+                        variant="h4" 
+                        color="warning.main"
+                        sx={{ fontWeight: 'bold', textAlign: 'center' }}
+                      >
+                        {formatCurrency(tripFeeRate)}
+                      </Typography>
+                      <Typography variant="caption" color="text.secondary" sx={{ textAlign: 'center', display: 'block', mt: 1 }}>
+                        ค่าเที่ยวต่อเดินทาง
+                      </Typography>
+                    </Paper>
+                  )}
                 </Box>
 
                 {/* Item Details */}
@@ -2443,6 +2581,12 @@ export default function AddTripRecordPage() {
                               <Box sx={{ display: 'flex', justifyContent: 'space-between' }}>
                                 <Typography variant="caption">ค่าระยะทาง:</Typography>
                                 <Typography variant="caption" fontWeight="bold">{formatCurrency(calculatedDistanceCost)}</Typography>
+                              </Box>
+                            )}
+                            {includeTripFee && tripFeeRate > 0 && (
+                              <Box sx={{ display: 'flex', justifyContent: 'space-between' }}>
+                                <Typography variant="caption">ค่าเที่ยว:</Typography>
+                                <Typography variant="caption" fontWeight="bold">{formatCurrency(tripFeeRate)}</Typography>
                               </Box>
                             )}
                           </Box>

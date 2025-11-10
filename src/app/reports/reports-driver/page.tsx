@@ -178,7 +178,7 @@ interface TripRecord {
   allowance?: number; // totalAllowance
   totalCosts?: number;
   driverExpenses?: number; // เบี้ยเลี้ยง + ค่าระยะทาง + ค่าพัสดุ
-  companyExpenses?: number; // ค่าน้ำมัน + ค่าผ่านทาง + ค่าซ่อมแซม + ค่าเช็คระยะ
+  tripFee?: number; // ค่าเที่ยวรถ
   remark?: string;
   createdAt: string;
   updatedAt: string;
@@ -212,6 +212,7 @@ interface ApiTripRecord {
   fuelCost?: string;
   tollFee?: string;
   repairCost?: string;
+  tripFee?: string;
   documentNumber: string;
   remark?: string;
   createdAt: string;
@@ -278,7 +279,7 @@ export default function DriverReport() {
     allowance?: number;
     totalCosts?: number;
     driverExpenses?: number;
-    companyExpenses?: number;
+    tripFee?: number;
     remark?: string;
   } | null>(null);
 
@@ -353,19 +354,19 @@ const distanceCheckFee = parseFloat(apiRecord.distanceCheckFee || '0') || 0;
 const estimatedDistance = parseFloat(apiRecord.estimatedDistance) || 0;
 const calculatedDistanceCost = estimatedDistance * distanceRate;
 
+// ค่าเที่ยวรถ = ค่าจริงจากฐานข้อมูล trip_records.trip_fee
+const tripFee = parseFloat(apiRecord.tripFee || '0') || 0;
+
 // คำนวณค่าใช้จ่ายแต่ละประเภท
 const driverExpenses = allowance + calculatedDistanceCost + suppliesCost; // เบี้ยเลี้ยง + ค่าระยะทาง + ค่าพัสดุ
-const companyExpenses = fuel + toll + repairCost + distanceCheckFee; // ค่าน้ำมัน + ค่าผ่านทาง + ค่าซ่อมแซม + ค่าเช็คระยะ
-const totalCosts = driverExpenses + companyExpenses;  // Debug: Log calculation values
+const totalCosts = driverExpenses + tripFee; // รวมค่าใช้จ่ายคนขับ + ค่าเที่ยวรถ  // Debug: Log calculation values
   if (DEBUG_REPORTS_DRIVER) {
     console.log('💰 Expense Calculation Debug:', {
       id: apiRecord.id,
       rawData: {
         totalAllowance: apiRecord.totalAllowance,
         estimatedDistance: apiRecord.estimatedDistance,
-        fuelCost: apiRecord.fuelCost,
-        tollFee: apiRecord.tollFee,
-        repairCost: apiRecord.repairCost,
+        tripFee: apiRecord.tripFee,
         tripItems: apiRecord.tripItems?.length || 0
       },
       calculation: {
@@ -376,15 +377,11 @@ const totalCosts = driverExpenses + companyExpenses;  // Debug: Log calculation 
       parsed: {
         allowance,
         calculatedDistanceCost,
-        distanceCheckFee,
         suppliesCost,
-        fuel,
-        toll,
-        repairCost
+        tripFee
       },
       calculated: {
         driverExpenses,
-        companyExpenses,
         totalCosts
       }
     });
@@ -416,7 +413,7 @@ const totalCosts = driverExpenses + companyExpenses;  // Debug: Log calculation 
       allowance,
       totalCosts,
       driverExpenses,
-      companyExpenses,
+      tripFee,
       remark: apiRecord.remark || '',
       createdAt: apiRecord.createdAt,
       updatedAt: apiRecord.updatedAt,
@@ -489,6 +486,16 @@ const totalCosts = driverExpenses + companyExpenses;  // Debug: Log calculation 
       averageCostPerTrip: filtered.length > 0 ? totalCosts / filtered.length : 0,
       driversCount: filteredUniqueDrivers.size
     });
+    
+    // Update drivers list based on filtered records (month/year filter)
+    const uniqueDrivers = new Set<string>();
+    tripRecords.forEach((record: TripRecord) => {
+      if (record.driverName && record.driverName.trim()) {
+        uniqueDrivers.add(record.driverName.trim());
+      }
+    });
+    const driversList = Array.from(uniqueDrivers).filter(Boolean).sort();
+    setDrivers(driversList);
   }, [filters.driverName, tripRecords]);
 
   const loadDistanceRate = async () => {
@@ -613,19 +620,19 @@ const totalCosts = driverExpenses + companyExpenses;  // Debug: Log calculation 
           console.log('Trip records sample:', sampleRecord);
           
           // Debug expenses specifically
-          const recordWithExpenses = records.find((r: TripRecord) => (r.driverExpenses || 0) > 0 || (r.companyExpenses || 0) > 0);
+          const recordWithExpenses = records.find((r: TripRecord) => (r.driverExpenses || 0) > 0 || (r.tripFee || 0) > 0);
           if (recordWithExpenses) {
             console.log('✅ Found record with expenses:', {
               id: recordWithExpenses.id,
               driverExpenses: recordWithExpenses.driverExpenses,
-              companyExpenses: recordWithExpenses.companyExpenses,
+              tripFee: recordWithExpenses.tripFee,
               totalCosts: recordWithExpenses.totalCosts
             });
           } else {
             console.log('❌ No records with expenses found. Sample record:', {
               id: records[0]?.id,
               driverExpenses: records[0]?.driverExpenses,
-              companyExpenses: records[0]?.companyExpenses,
+              tripFee: records[0]?.tripFee,
               totalCosts: records[0]?.totalCosts,
               allowance: records[0]?.allowance,
               distanceCheckFee: records[0]?.distanceCheckFee,
@@ -667,9 +674,14 @@ const totalCosts = driverExpenses + companyExpenses;  // Debug: Log calculation 
         const driversList = Array.from(uniqueDrivers).filter(Boolean).sort();
         setDrivers(driversList);
         
+        // Reset driver filter if the selected driver is not in the new list
+        if (filters.driverName && !driversList.includes(filters.driverName)) {
+          setFilters(prev => ({ ...prev, driverName: '' }));
+        }
+        
         // Apply client-side driver filter if selected
         let filtered = records;
-        if (filters.driverName) {
+        if (filters.driverName && driversList.includes(filters.driverName)) {
           filtered = records.filter(record => record.driverName === filters.driverName);
         }
         
@@ -747,7 +759,7 @@ const totalCosts = driverExpenses + companyExpenses;  // Debug: Log calculation 
       'ระยะทางจริง (กม.)',
       'ระยะทางระบบ (กม.)',
       'จ่ายคนขับ (บาท)',
-      'ค่าใช้จ่ายบริษัท (บาท)',
+      'ค่าเที่ยวรถ (บาท)',
       'ค่าใช้จ่ายรวม (บาท)',
       'หมายเหตุ'
     ];
@@ -762,7 +774,7 @@ const totalCosts = driverExpenses + companyExpenses;  // Debug: Log calculation 
       (record.actualDistance || 0).toString(),
       (record.estimatedDistance || 0).toString(),
       (record.driverExpenses || 0).toString(),
-      (record.companyExpenses || 0).toString(),
+      (record.tripFee || 0).toString(),
       (record.totalCosts || 0).toString(),
       record.remark || '-'
     ]);
@@ -813,7 +825,7 @@ const totalCosts = driverExpenses + companyExpenses;  // Debug: Log calculation 
       allowance: record.allowance,
       totalCosts: record.totalCosts,
       driverExpenses: record.driverExpenses,
-      companyExpenses: record.companyExpenses,
+      tripFee: record.tripFee,
       remark: record.remark
     });
     setDriverDialogOpen(true);
@@ -968,22 +980,17 @@ const totalCosts = driverExpenses + companyExpenses;  // Debug: Log calculation 
                   <div>• จำนวนเที่ยว: ${selectedDriverRecords.length} เที่ยว</div>
                   <div>• ระยะทางจริงรวม: ${formatNumberForPDF(selectedDriverRecords.reduce((sum, r) => sum + (r.actualDistance || 0), 0))} กม.</div>
                   <div>• ระยะทางระบบรวม: ${formatNumberForPDF(selectedDriverRecords.reduce((sum, r) => sum + (r.estimatedDistance || 0), 0))} กม.</div>
-                  <div style="padding: 5px;">
-                    <strong>จ่ายคนขับ: ${formatNumberForPDF(selectedDriverRecords.reduce((sum, r) => sum + (r.driverExpenses || 0), 0))} บาท</strong>
-                    <div style="font-size: 11px; margin-left: 10px; margin-top: 3px;">
-                      - เบี้ยเลี้ยง: ${formatNumberForPDF(totalAllowance)} บาท<br/>
-                      - ค่าระยะทาง: ${formatNumberForPDF(totalCalculatedDistanceCost)} บาท<br/>
-                      - ค่าพัสดุ: ${formatNumberForPDF(totalSuppliesCost)} บาท
-                    </div>
+                  <div>
+                    • ค่าเบี้ยเลี้ยง: ${formatNumberForPDF(totalAllowance)} บาท</strong>
                   </div>
-                  <div style="padding: 5px;">
-                    <strong>ค่าใช้จ่ายบริษัท: ${formatNumberForPDF(selectedDriverRecords.reduce((sum, r) => sum + (r.companyExpenses || 0), 0))} บาท</strong>
-                    <div style="font-size: 11px; margin-left: 10px; margin-top: 3px;">
-                      - ค่าน้ำมัน: ${formatNumberForPDF(totalFuelCost)} บาท<br/>
-                      - ค่าผ่านทาง: ${formatNumberForPDF(totalTolls)} บาท<br/>
-                      - ค่าเช็คระยะ: ${formatNumberForPDF(totalDistanceCheckFee)} บาท<br/>
-                      - ค่าซ่อมแซม: ${formatNumberForPDF(totalRepairCost)} บาท
-                    </div>
+                  <div>
+                    • ค่าพัสดุนำกลับ: ${formatNumberForPDF(totalSuppliesCost)} บาท</strong>
+                  </div>
+                  <div>
+                    • ค่าระยะทาง: ${formatNumberForPDF(totalCalculatedDistanceCost)} บาท</strong>
+                  </div>
+                  <div>
+                    • ค่าเที่ยวรถ: ${formatNumberForPDF(selectedDriverRecords.reduce((sum, r) => sum + (r.tripFee || 0), 0))} บาท</strong>
                   </div>
                 </div>
                 <div style="margin-top: 15px; font-size: 16px; color: black; font-weight: 700; text-align: center; border: 2px solid #000; padding: 10px;">
@@ -1038,14 +1045,11 @@ const totalCosts = driverExpenses + companyExpenses;  // Debug: Log calculation 
                   <div>• <strong>ระยะทางจริง:</strong> ${formatNumberForPDF(record.actualDistance || 0)} กม.</div>
                   <div>• <strong>ระยะทางระบบ:</strong> ${formatNumberForPDF(record.estimatedDistance || 0)} กม.</div>
                   <div>• <strong>เบี้ยเลี้ยง:</strong> ${formatNumberForPDF(allowance)} ฿</div>
+                  <div>• <strong>ค่าพัสดุ:</strong> ${formatNumberForPDF(suppliesCost)} ฿</div>
                   <div>• <strong>ค่าระยะทาง:</strong> ${formatNumberForPDF(calculatedDistanceCost)} ฿</div>
-                  <div>• <strong>พัสดุ:</strong> ${formatNumberForPDF(suppliesCost)} ฿</div>
-                  <div>• <strong>น้ำมัน:</strong> ${formatNumberForPDF(fuelCost)} ฿</div>
-                  <div>• <strong>ผ่านทาง:</strong> ${formatNumberForPDF(tolls)} ฿</div>
-                  <div>• <strong>ค่าเช็คระยะ:</strong> ${formatNumberForPDF(distanceCheckFee)} ฿</div>
-                  <div>• <strong>ซ่อมแซม:</strong> ${formatNumberForPDF(repairCost)} ฿</div>
-                  <div>• <strong>รวมทั้งหมด:</strong> ${formatNumberForPDF(tripTotal)} ฿</div>
-                  <div>• <strong>หมายเหตุ:</strong> ${record.remark || '-'}</div>
+                  <div>• <strong>ค่าเที่ยวรถ:</strong> ${formatNumberForPDF(record.tripFee || 0)} ฿</div>
+                  <div style="grid-column: span 3;"><strong>รวมทั้งหมด:</strong> ${formatNumberForPDF(tripTotal)} ฿</div>
+                  <div style="grid-column: span 4;"><strong>หมายเหตุ:</strong> ${record.remark || '-'}</div>
                 </div>
               </div>
             </div>
@@ -1237,7 +1241,7 @@ const totalCosts = driverExpenses + companyExpenses;  // Debug: Log calculation 
       // สร้าง HTML template แบบไดนามิก
       const createDriverSummaryHTML = () => {
         return `
-          <div style="font-family: 'Sarabun', Arial, sans-serif; width: 900px; background: white; padding: 20px; color: black;">
+          <div style="font-family: 'Sarabun', Arial, sans-serif; width: 1200px; background: white; padding: 20px; color: black;">
             <div style="text-align: center; margin-bottom: 30px;">
               <h2 style="font-size: 18px; font-weight: 700; margin: 0; color: black;">รายงานคนขับรถ - สรุปทั้งหมด</h2>
               <p style="font-size: 16px; margin: 10px 0; color: black;">${monthName} ${yearDisplay}</p>
@@ -1245,13 +1249,15 @@ const totalCosts = driverExpenses + companyExpenses;  // Debug: Log calculation 
             
             <div style="margin-bottom: 25px;">
               <h3 style="font-size: 16px; font-weight: 700; margin-bottom: 10px; color: black;">สรุปรวมทั้งหมด</h3>
-              <div style="display: grid; grid-template-columns: repeat(3, 1fr); gap: 20px; font-size: 14px; color: black;">
+              <div style="display: grid; grid-template-columns: repeat(4, 1fr); gap: 15px; font-size: 14px; color: black;">
                 <span>จำนวนคนขับ: ${driverList.length} คน</span>
                 <span>จำนวนเที่ยว: ${summary.totalTrips} เที่ยว</span>
                 <span>ระยะทางจริงรวม: ${formatNumberForPDF(filteredRecords.reduce((sum, r) => sum + (r.actualDistance || 0), 0))} กม.</span>
                 <span>ระยะทางระบบรวม: ${formatNumberForPDF(filteredRecords.reduce((sum, r) => sum + (r.estimatedDistance || 0), 0))} กม.</span>
-                <span>จ่ายคนขับรวม: ${formatNumberForPDF(filteredRecords.reduce((sum, r) => sum + (r.driverExpenses || 0), 0))} บาท</span>
-                <span>ค่าใช้จ่ายบริษัทรวม: ${formatNumberForPDF(filteredRecords.reduce((sum, r) => sum + (r.companyExpenses || 0), 0))} บาท</span>
+                <span>ค่าเบี้ยเลี้ยงรวม: ${formatNumberForPDF(filteredRecords.reduce((sum, r) => sum + (r.allowance || 0), 0))} บาท</span>
+                <span>ค่าพัสดุนำกลับรวม: ${formatNumberForPDF(filteredRecords.reduce((sum, r) => sum + (r.suppliesCost || 0), 0))} บาท</span>
+                <span>ค่าระยะทางรวม: ${formatNumberForPDF(filteredRecords.reduce((sum, r) => sum + (r.calculatedDistanceCost || 0), 0))} บาท</span>
+                <span>ค่าเที่ยวรถรวม: ${formatNumberForPDF(filteredRecords.reduce((sum, r) => sum + (r.tripFee || 0), 0))} บาท</span>
                 <span style="font-weight: bold;">ค่าใช้จ่ายรวมทั้งหมด: ${formatNumberForPDF(summary.totalCosts)} บาท</span>
               </div>
             </div>
@@ -1266,8 +1272,10 @@ const totalCosts = driverExpenses + companyExpenses;  // Debug: Log calculation 
                     <th style="border: 1px solid #000; padding: 8px; text-align: center; color: black;">จำนวนเที่ยว</th>
                     <th style="border: 1px solid #000; padding: 8px; text-align: center; color: black;">ระยะทางจริงรวม (กม.)</th>
                     <th style="border: 1px solid #000; padding: 8px; text-align: center; color: black;">ระยะทางระบบรวม (กม.)</th>
-                    <th style="border: 1px solid #000; padding: 8px; text-align: center; color: black;">จ่ายคนขับรวม (บาท)</th>
-                    <th style="border: 1px solid #000; padding: 8px; text-align: center; color: black;">ค่าใช้จ่ายบริษัทรวม (บาท)</th>
+                    <th style="border: 1px solid #000; padding: 8px; text-align: center; color: black;">ค่าเบี้ยเลี้ยงรวม (บาท)</th>
+                    <th style="border: 1px solid #000; padding: 8px; text-align: center; color: black;">ค่าพัสดุนำกลับรวม (บาท)</th>
+                    <th style="border: 1px solid #000; padding: 8px; text-align: center; color: black;">ค่าระยะทางรวม (บาท)</th>
+                    <th style="border: 1px solid #000; padding: 8px; text-align: center; color: black;">ค่าเที่ยวรถรวม (บาท)</th>
                     <th style="border: 1px solid #000; padding: 8px; text-align: center; color: black;">ค่าใช้จ่ายรวม (บาท)</th>
                     
                   </tr>
@@ -1286,8 +1294,10 @@ const totalCosts = driverExpenses + companyExpenses;  // Debug: Log calculation 
                         <td style="border: 1px solid #000; padding: 6px; text-align: center; color: black;">${records.length}</td>
                         <td style="border: 1px solid #000; padding: 6px; text-align: center; color: black;">${formatNumberForPDF(records.reduce((sum, r) => sum + (r.actualDistance || 0), 0))}</td>
                         <td style="border: 1px solid #000; padding: 6px; text-align: center; color: black;">${formatNumberForPDF(records.reduce((sum, r) => sum + (r.estimatedDistance || 0), 0))}</td>
-                        <td style="border: 1px solid #000; padding: 6px; text-align: center; color: black;">${formatNumberForPDF(records.reduce((sum, r) => sum + (r.driverExpenses || 0), 0))}</td>
-                        <td style="border: 1px solid #000; padding: 6px; text-align: center; color: black;">${formatNumberForPDF(records.reduce((sum, r) => sum + (r.companyExpenses || 0), 0))}</td>
+                        <td style="border: 1px solid #000; padding: 6px; text-align: center; color: black;">${formatNumberForPDF(records.reduce((sum, r) => sum + (r.allowance || 0), 0))}</td>
+                        <td style="border: 1px solid #000; padding: 6px; text-align: center; color: black;">${formatNumberForPDF(records.reduce((sum, r) => sum + (r.suppliesCost || 0), 0))}</td>
+                        <td style="border: 1px solid #000; padding: 6px; text-align: center; color: black;">${formatNumberForPDF(records.reduce((sum, r) => sum + (r.calculatedDistanceCost || 0), 0))}</td>
+                        <td style="border: 1px solid #000; padding: 6px; text-align: center; color: black;">${formatNumberForPDF(records.reduce((sum, r) => sum + (r.tripFee || 0), 0))}</td>
                         <td style="border: 1px solid #000; padding: 6px; text-align: center; color: black; font-weight: bold;">${formatNumberForPDF(totalCosts)}</td>
                         
                       </tr>
@@ -1369,11 +1379,13 @@ const totalCosts = driverExpenses + companyExpenses;  // Debug: Log calculation 
               </h3>
               
               <div style="margin-bottom: 8px; padding: 8px; background-color: #f5f5f5; border-radius: 3px;">
-                <div style="display: grid; grid-template-columns: repeat(4, 1fr); gap: 8px; font-size: 12px; color: black;">
+                <div style="display: grid; grid-template-columns: repeat(5, 1fr); gap: 8px; font-size: 12px; color: black;">
                   <div>จำนวนเที่ยว: ${records.length} เที่ยว</div>
-                  <div>รวมทั้งหมด: ${formatNumberForPDF(totalCosts)} บาท</div>
-                  <div>จ่ายคนขับ: ${formatNumberForPDF(totalAllowance + totalCalculatedDistanceCost + totalSuppliesCost)} บาท</div>
-                  <div>ค่าใช้จ่ายบริษัท: ${formatNumberForPDF(totalFuelCost + totalTolls + totalRepairCost + totalDistanceCheckFee)} บาท</div>
+                  <div>ค่าเบี้ยเลี้ยง: ${formatNumberForPDF(totalAllowance)} บาท</div>
+                  <div>ค่าพัสดุนำกลับ: ${formatNumberForPDF(totalSuppliesCost)} บาท</div>
+                  <div>ค่าระยะทาง: ${formatNumberForPDF(totalCalculatedDistanceCost)} บาท</div>
+                  <div>ค่าเที่ยวรถ: ${formatNumberForPDF(records.reduce((sum, r) => sum + (r.tripFee || 0), 0))} บาท</div>
+                  <div style="grid-column: span 5; font-weight: bold; border-top: 1px solid #ccc; padding-top: 4px; margin-top: 4px;">รวมทั้งหมด: ${formatNumberForPDF(totalCosts)} บาท</div>
                 </div>
               </div>
               
@@ -1402,16 +1414,13 @@ const totalCosts = driverExpenses + companyExpenses;  // Debug: Log calculation 
                         
                         <div><strong>ระยะระบบ:</strong> ${formatNumberForPDF(record.estimatedDistance || 0)} กม.</div>
                         <div><strong>เบี้ยเลี้ยง:</strong> ${formatNumberForPDF(record.allowance || 0)} บาท</div>
-                        <div><strong>ค่าระยะทาง:</strong> ${formatNumberForPDF(record.calculatedDistanceCost || 0)} บาท</div>
                         <div><strong>ค่าพัสดุ:</strong> ${formatNumberForPDF(record.suppliesCost || 0)} บาท</div>
+                        <div><strong>ค่าระยะทาง:</strong> ${formatNumberForPDF(record.calculatedDistanceCost || 0)} บาท</div>
                         
-                        <div><strong>น้ำมัน:</strong> ${formatNumberForPDF(record.fuelCost || 0)} บาท</div>
-                        <div><strong>ผ่านทาง:</strong> ${formatNumberForPDF(record.tolls || 0)} บาท</div>
-                        <div><strong>ค่าเช็คระยะ:</strong> ${formatNumberForPDF(record.distanceCheckFee || 0)} บาท</div>
-                        <div><strong>ซ่อมแซม:</strong> ${formatNumberForPDF(record.repairCost || 0)} บาท</div>
+                        <div><strong>ค่าเที่ยวรถ:</strong> ${formatNumberForPDF(record.tripFee || 0)} บาท</div>
+                        <div style="grid-column: span 3;"><strong>รวมทั้งหมด:</strong> ${formatNumberForPDF(record.totalCosts || 0)} บาท</div>
                         
-                        <div style="grid-column: span 2;"><strong>รวมทั้งหมด:</strong> ${formatNumberForPDF(record.totalCosts || 0)} บาท</div>
-                        <div style="grid-column: span 2;"><strong>หมายเหตุ:</strong> ${record.remark || '-'}</div>
+                        <div style="grid-column: span 4;"><strong>หมายเหตุ:</strong> ${record.remark || '-'}</div>
                       </div>
                     </li>
                   `;
@@ -1998,42 +2007,42 @@ const totalCosts = driverExpenses + companyExpenses;  // Debug: Log calculation 
           
           {/* Summary */}
           <Box className="section">
-            <table className="table" style={{ fontSize: '14px', width: '800px', margin: '0 auto' }}>
+            <table className="table" style={{ fontSize: '14px', width: '100%', margin: '0 auto' }}>
               <thead>
                 <tr>
-                  <th>จำนวนเที่ยว</th>
-                  <th>ระยะทางจริงรวม (กม.)</th>
-                  <th>ระยะทางระบบรวม (กม.)</th>
-                  <th>จ่ายคนขับรวม (บาท)</th>
-                  <th>ค่าใช้จ่ายบริษัทรวม (บาท)</th>
+                  <th>จำนวนเที่ยว</th>                 
+                  <th>ค่าเบี้ยเลี้ยงรวม (บาท)</th>
+                  <th>ค่าพัสดุรวม (บาท)</th>
+                  <th>ค่าระยะทางรวม (บาท)</th>
+                  <th>ค่าเที่ยวรถรวม (บาท)</th>
                   <th>ค่าใช้จ่ายรวม (บาท)</th>
                 </tr>
               </thead>
               <tbody>
                 <tr style={{ textAlign: 'center' }}>
-                  <td>{summary.totalTrips}</td>
+                  <td>{summary.totalTrips}</td>                 
                   <td>
                     {(() => {
-                      const totalActualDistance = filteredRecords.reduce((sum, record) => sum + (record.actualDistance || 0), 0);
-                      return totalActualDistance.toLocaleString('th-TH', { maximumFractionDigits: 2 });
+                      const totalAllowance = filteredRecords.reduce((sum, record) => sum + (record.allowance || 0), 0);
+                      return totalAllowance.toLocaleString('th-TH', { maximumFractionDigits: 2 });
                     })()}
                   </td>
                   <td>
                     {(() => {
-                      const totalEstimatedDistance = filteredRecords.reduce((sum, record) => sum + (record.estimatedDistance || 0), 0);
-                      return totalEstimatedDistance.toLocaleString('th-TH', { maximumFractionDigits: 2 });
+                      const totalSuppliesCost = filteredRecords.reduce((sum, record) => sum + (record.suppliesCost || 0), 0);
+                      return totalSuppliesCost.toLocaleString('th-TH', { maximumFractionDigits: 2 });
                     })()}
                   </td>
                   <td>
                     {(() => {
-                      const totalDriverExpenses = filteredRecords.reduce((sum, record) => sum + (record.driverExpenses || 0), 0);
-                      return totalDriverExpenses.toLocaleString('th-TH', { maximumFractionDigits: 2 });
+                      const totalDistanceCost = filteredRecords.reduce((sum, record) => sum + (record.calculatedDistanceCost || 0), 0);
+                      return totalDistanceCost.toLocaleString('th-TH', { maximumFractionDigits: 2 });
                     })()}
                   </td>
                   <td>
                     {(() => {
-                      const totalCompanyExpenses = filteredRecords.reduce((sum, record) => sum + (record.companyExpenses || 0), 0);
-                      return totalCompanyExpenses.toLocaleString('th-TH', { maximumFractionDigits: 2 });
+                      const totalTripFee = filteredRecords.reduce((sum, record) => sum + (record.tripFee || 0), 0);
+                      return totalTripFee.toLocaleString('th-TH', { maximumFractionDigits: 2 });
                     })()}
                   </td>
                   <td>{summary.totalCosts.toLocaleString('th-TH', { maximumFractionDigits: 2 })}</td>
@@ -2047,16 +2056,18 @@ const totalCosts = driverExpenses + companyExpenses;  // Debug: Log calculation 
             <table className="table" style={{ fontSize: '12px' }}>
               <thead>
                 <tr>
-                  <th style={{ border: '1px solid #000', padding: '8px', width: '10%' }}>วันที่เดินทาง</th>
-                  <th style={{ border: '1px solid #000', padding: '8px', width: '10%' }}>คนขับ</th>
-                  <th style={{ border: '1px solid #000', padding: '8px', width: '10%' }}>ทะเบียนรถ</th>
-                  <th style={{ border: '1px solid #000', padding: '8px', width: '12%' }}>ลูกค้า</th>
-                  <th style={{ border: '1px solid #000', padding: '8px', width: '8%' }}>ระยะทางจริง (กม.)</th>
-                  <th style={{ border: '1px solid #000', padding: '8px', width: '8%' }}>ระยะทางระบบ (กม.)</th>
-                  <th style={{ border: '1px solid #000', padding: '8px', width: '10%' }}>จ่ายคนขับ (บาท)</th>
-                  <th style={{ border: '1px solid #000', padding: '8px', width: '10%' }}>ค่าใช้จ่ายบริษัท (บาท)</th>
-                  <th style={{ border: '1px solid #000', padding: '8px', width: '10%' }}>รวมทั้งหมด (บาท)</th>
-                  <th style={{ border: '1px solid #000', padding: '8px', width: '12%' }}>หมายเหตุ</th>
+                  <th style={{ border: '1px solid #000', padding: '8px', width: '8%' }}>วันที่เดินทาง</th>
+                  <th style={{ border: '1px solid #000', padding: '8px', width: '8%' }}>คนขับ</th>
+                  <th style={{ border: '1px solid #000', padding: '8px', width: '8%' }}>ทะเบียนรถ</th>
+                  <th style={{ border: '1px solid #000', padding: '8px', width: '10%' }}>ลูกค้า</th>
+                  <th style={{ border: '1px solid #000', padding: '8px', width: '6%' }}>ระยะทางจริง (กม.)</th>
+                  <th style={{ border: '1px solid #000', padding: '8px', width: '6%' }}>ระยะทางระบบ (กม.)</th>
+                  <th style={{ border: '1px solid #000', padding: '8px', width: '8%' }}>ค่าเบี้ยเลี้ยง (บาท)</th>
+                  <th style={{ border: '1px solid #000', padding: '8px', width: '8%' }}>ค่าพัสดุ (บาท)</th>
+                  <th style={{ border: '1px solid #000', padding: '8px', width: '8%' }}>ค่าระยะทาง (บาท)</th>
+                  <th style={{ border: '1px solid #000', padding: '8px', width: '8%' }}>ค่าเที่ยวรถ (บาท)</th>
+                  <th style={{ border: '1px solid #000', padding: '8px', width: '8%' }}>รวมทั้งหมด (บาท)</th>
+                  <th style={{ border: '1px solid #000', padding: '8px', width: '10%' }}>หมายเหตุ</th>
                 </tr>
               </thead>
               <tbody>
@@ -2081,10 +2092,16 @@ const totalCosts = driverExpenses + companyExpenses;  // Debug: Log calculation 
                       {(record.estimatedDistance || 0).toLocaleString('th-TH', { maximumFractionDigits: 2 })}
                     </td>
                     <td style={{ border: '1px solid #000', padding: '6px', textAlign: 'right', fontSize: '12px' }}>
-                      {(record.driverExpenses || 0).toLocaleString('th-TH', { maximumFractionDigits: 2 })}
+                      {(record.allowance || 0).toLocaleString('th-TH', { maximumFractionDigits: 2 })}
                     </td>
                     <td style={{ border: '1px solid #000', padding: '6px', textAlign: 'right', fontSize: '12px' }}>
-                      {(record.companyExpenses || 0).toLocaleString('th-TH', { maximumFractionDigits: 2 })}
+                      {(record.suppliesCost || 0).toLocaleString('th-TH', { maximumFractionDigits: 2 })}
+                    </td>
+                    <td style={{ border: '1px solid #000', padding: '6px', textAlign: 'right', fontSize: '12px' }}>
+                      {(record.calculatedDistanceCost || 0).toLocaleString('th-TH', { maximumFractionDigits: 2 })}
+                    </td>
+                    <td style={{ border: '1px solid #000', padding: '6px', textAlign: 'right', fontSize: '12px' }}>
+                      {(record.tripFee || 0).toLocaleString('th-TH', { maximumFractionDigits: 2 })}
                     </td>
                     <td style={{ border: '1px solid #000', padding: '6px', textAlign: 'right', fontSize: '12px' }}>
                       {(record.totalCosts || 0).toLocaleString('th-TH', { maximumFractionDigits: 2 })}
@@ -2114,14 +2131,26 @@ const totalCosts = driverExpenses + companyExpenses;  // Debug: Log calculation 
                   </td>
                   <td style={{ border: '1px solid #000', padding: '6px', textAlign: 'right', fontWeight: 700, fontSize: '12px' }}>
                     {(() => {
-                      const totalDriverExpenses = filteredRecords.reduce((sum, record) => sum + (record.driverExpenses || 0), 0);
-                      return totalDriverExpenses.toLocaleString('th-TH', { maximumFractionDigits: 2 });
+                      const totalAllowance = filteredRecords.reduce((sum, record) => sum + (record.allowance || 0), 0);
+                      return totalAllowance.toLocaleString('th-TH', { maximumFractionDigits: 2 });
                     })()}
                   </td>
                   <td style={{ border: '1px solid #000', padding: '6px', textAlign: 'right', fontWeight: 700, fontSize: '12px' }}>
                     {(() => {
-                      const totalCompanyExpenses = filteredRecords.reduce((sum, record) => sum + (record.companyExpenses || 0), 0);
-                      return totalCompanyExpenses.toLocaleString('th-TH', { maximumFractionDigits: 2 });
+                      const totalSuppliesCost = filteredRecords.reduce((sum, record) => sum + (record.suppliesCost || 0), 0);
+                      return totalSuppliesCost.toLocaleString('th-TH', { maximumFractionDigits: 2 });
+                    })()}
+                  </td>
+                  <td style={{ border: '1px solid #000', padding: '6px', textAlign: 'right', fontWeight: 700, fontSize: '12px' }}>
+                    {(() => {
+                      const totalDistanceCost = filteredRecords.reduce((sum, record) => sum + (record.calculatedDistanceCost || 0), 0);
+                      return totalDistanceCost.toLocaleString('th-TH', { maximumFractionDigits: 2 });
+                    })()}
+                  </td>
+                  <td style={{ border: '1px solid #000', padding: '6px', textAlign: 'right', fontWeight: 700, fontSize: '12px' }}>
+                    {(() => {
+                      const totalTripFee = filteredRecords.reduce((sum, record) => sum + (record.tripFee || 0), 0);
+                      return totalTripFee.toLocaleString('th-TH', { maximumFractionDigits: 2 });
                     })()}
                   </td>
                   <td style={{ border: '1px solid #000', padding: '6px', textAlign: 'right', fontWeight: 700, fontSize: '12px' }}>
@@ -2270,7 +2299,7 @@ const totalCosts = driverExpenses + companyExpenses;  // Debug: Log calculation 
         </Paper>
 
         {/* Summary Cards */}
-        <Box sx={{ display: 'grid', gridTemplateColumns: { xs: '1fr', sm: '1fr 1fr', md: 'repeat(6, 1fr)' }, gap: 2, mb: 3 }}>
+        <Box sx={{ display: 'grid', gridTemplateColumns: { xs: '1fr', sm: 'repeat(2, 1fr)', md: 'repeat(4, 1fr)', lg: 'repeat(8, 1fr)' }, gap: 2, mb: 3 }}>
           <Paper sx={{ p: 2, textAlign: 'center' }}>
             <Typography variant="h6" color="primary">
               {summary.totalTrips}
@@ -2304,23 +2333,45 @@ const totalCosts = driverExpenses + companyExpenses;  // Debug: Log calculation 
           <Paper sx={{ p: 2, textAlign: 'center' }}>
             <Typography variant="h6" color="warning.main">
               {(() => {
-                const totalDriverExpenses = filteredRecords.reduce((sum, record) => sum + (record.driverExpenses || 0), 0);
-                return totalDriverExpenses.toLocaleString('th-TH', { maximumFractionDigits: 0 });
+                const totalAllowance = filteredRecords.reduce((sum, record) => sum + (record.allowance || 0), 0);
+                return totalAllowance.toLocaleString('th-TH', { maximumFractionDigits: 0 });
               })()} บาท
             </Typography>
             <Typography variant="body2" color="text.secondary" sx={{ fontSize: '0.8rem' }}>
-              จ่ายคนขับรวม
+              ค่าเบี้ยเลี้ยง
+            </Typography>
+          </Paper>
+          <Paper sx={{ p: 2, textAlign: 'center' }}>
+            <Typography variant="h6" color="warning.main">
+              {(() => {
+                const totalSuppliesCost = filteredRecords.reduce((sum, record) => sum + (record.suppliesCost || 0), 0);
+                return totalSuppliesCost.toLocaleString('th-TH', { maximumFractionDigits: 0 });
+              })()} บาท
+            </Typography>
+            <Typography variant="body2" color="text.secondary" sx={{ fontSize: '0.8rem' }}>
+              ค่าพัสดุนำกลับ
+            </Typography>
+          </Paper>
+          <Paper sx={{ p: 2, textAlign: 'center' }}>
+            <Typography variant="h6" color="warning.main">
+              {(() => {
+                const totalDistanceCost = filteredRecords.reduce((sum, record) => sum + (record.calculatedDistanceCost || 0), 0);
+                return totalDistanceCost.toLocaleString('th-TH', { maximumFractionDigits: 0 });
+              })()} บาท
+            </Typography>
+            <Typography variant="body2" color="text.secondary" sx={{ fontSize: '0.8rem' }}>
+              ค่าระยะทาง
             </Typography>
           </Paper>
           <Paper sx={{ p: 2, textAlign: 'center' }}>
             <Typography variant="h6" color="info.main">
               {(() => {
-                const totalCompanyExpenses = filteredRecords.reduce((sum, record) => sum + (record.companyExpenses || 0), 0);
-                return totalCompanyExpenses.toLocaleString('th-TH', { maximumFractionDigits: 0 });
+                const totalTripFee = filteredRecords.reduce((sum, record) => sum + (record.tripFee || 0), 0);
+                return totalTripFee.toLocaleString('th-TH', { maximumFractionDigits: 0 });
               })()} บาท
             </Typography>
             <Typography variant="body2" color="text.secondary" sx={{ fontSize: '0.8rem' }}>
-              ค่าใช้จ่ายบริษัท
+              ค่าเที่ยวรถ
             </Typography>
           </Paper>
           <Paper sx={{ p: 2, textAlign: 'center' }}>
@@ -2384,8 +2435,10 @@ const totalCosts = driverExpenses + companyExpenses;  // Debug: Log calculation 
                       <TableCell>ลูกค้า</TableCell>
                       <TableCell align="right">ระยะทางจริง</TableCell>
                       <TableCell align="right">ระยะทางระบบ</TableCell>
-                      <TableCell align="right">จ่ายคนขับ</TableCell>
-                      <TableCell align="right">ค่าใช้จ่ายบริษัท</TableCell>
+                      <TableCell align="right">ค่าเบี้ยเลี้ยง</TableCell>
+                      <TableCell align="right">ค่าพัสดุนำกลับ</TableCell>
+                      <TableCell align="right">ค่าระยะทาง</TableCell>
+                      <TableCell align="right">ค่าเที่ยวรถ</TableCell>
                       <TableCell align="right">รวมทั้งหมด</TableCell>
                       <TableCell>หมายเหตุ</TableCell>
                     </TableRow>
@@ -2476,17 +2529,27 @@ const totalCosts = driverExpenses + companyExpenses;  // Debug: Log calculation 
                         </TableCell>
                         <TableCell align="right">
                           <Typography variant="body2" fontWeight="medium" color="warning.main">
-                            {(record.driverExpenses || 0).toLocaleString('th-TH', { maximumFractionDigits: 2 })} บาท
+                            {(record.allowance || 0).toLocaleString('th-TH', { maximumFractionDigits: 2 })}
+                          </Typography>
+                        </TableCell>
+                        <TableCell align="right">
+                          <Typography variant="body2" fontWeight="medium" color="warning.main">
+                            {(record.suppliesCost || 0).toLocaleString('th-TH', { maximumFractionDigits: 2 })}
+                          </Typography>
+                        </TableCell>
+                        <TableCell align="right">
+                          <Typography variant="body2" fontWeight="medium" color="warning.main">
+                            {(record.calculatedDistanceCost || 0).toLocaleString('th-TH', { maximumFractionDigits: 2 })}
                           </Typography>
                         </TableCell>
                         <TableCell align="right">
                           <Typography variant="body2" fontWeight="medium" color="info.main">
-                            {(record.companyExpenses || 0).toLocaleString('th-TH', { maximumFractionDigits: 2 })} บาท
+                            {(record.tripFee || 0).toLocaleString('th-TH', { maximumFractionDigits: 2 })}
                           </Typography>
                         </TableCell>
                         <TableCell align="right">
                           <Typography variant="body2" fontWeight="medium" color="success.main">
-                            {(record.totalCosts || 0).toLocaleString('th-TH', { maximumFractionDigits: 2 })} บาท
+                            {(record.totalCosts || 0).toLocaleString('th-TH', { maximumFractionDigits: 2 })}
                           </Typography>
                         </TableCell>
                         <TableCell>
@@ -2523,22 +2586,38 @@ const totalCosts = driverExpenses + companyExpenses;  // Debug: Log calculation 
                       <TableCell align="right">
                         <Typography variant="body2" fontWeight="medium" color="warning.main">
                           {(() => {
-                            const totalDriverExpenses = filteredRecords.reduce((sum, record) => sum + (record.driverExpenses || 0), 0);
-                            return totalDriverExpenses.toLocaleString('th-TH', { maximumFractionDigits: 2 });
-                          })()} บาท
+                            const totalAllowance = filteredRecords.reduce((sum, record) => sum + (record.allowance || 0), 0);
+                            return totalAllowance.toLocaleString('th-TH', { maximumFractionDigits: 2 });
+                          })()} 
+                        </Typography>
+                      </TableCell>
+                      <TableCell align="right">
+                        <Typography variant="body2" fontWeight="medium" color="warning.main">
+                          {(() => {
+                            const totalSuppliesCost = filteredRecords.reduce((sum, record) => sum + (record.suppliesCost || 0), 0);
+                            return totalSuppliesCost.toLocaleString('th-TH', { maximumFractionDigits: 2 });
+                          })()} 
+                        </Typography>
+                      </TableCell>
+                      <TableCell align="right">
+                        <Typography variant="body2" fontWeight="medium" color="warning.main">
+                          {(() => {
+                            const totalDistanceCost = filteredRecords.reduce((sum, record) => sum + (record.calculatedDistanceCost || 0), 0);
+                            return totalDistanceCost.toLocaleString('th-TH', { maximumFractionDigits: 2 });
+                          })()} 
                         </Typography>
                       </TableCell>
                       <TableCell align="right">
                         <Typography variant="body2" fontWeight="medium" color="info.main">
                           {(() => {
-                            const totalCompanyExpenses = filteredRecords.reduce((sum, record) => sum + (record.companyExpenses || 0), 0);
-                            return totalCompanyExpenses.toLocaleString('th-TH', { maximumFractionDigits: 2 });
-                          })()} บาท
+                            const totalTripFee = filteredRecords.reduce((sum, record) => sum + (record.tripFee || 0), 0);
+                            return totalTripFee.toLocaleString('th-TH', { maximumFractionDigits: 2 });
+                          })()} 
                         </Typography>
                       </TableCell>
                       <TableCell align="right">
                         <Typography variant="body2" fontWeight="medium" color="success.main">
-                          {summary.totalCosts.toLocaleString('th-TH', { maximumFractionDigits: 2 })} บาท
+                          {summary.totalCosts.toLocaleString('th-TH', { maximumFractionDigits: 2 })} 
                         </Typography>
                       </TableCell>
                       <TableCell></TableCell>
@@ -2685,7 +2764,7 @@ const totalCosts = driverExpenses + companyExpenses;  // Debug: Log calculation 
                   {/* Expense Details */}
                   <Box sx={{ 
                     display: 'grid', 
-                    gridTemplateColumns: '1fr 1fr 1fr', 
+                    gridTemplateColumns: 'repeat(4, 1fr)', 
                     gap: 1.5, 
                     py: 1.5,
                     bgcolor: 'grey.50',
@@ -2693,21 +2772,47 @@ const totalCosts = driverExpenses + companyExpenses;  // Debug: Log calculation 
                   }}>
                     <Box>
                       <Typography variant="caption" color="text.secondary" sx={{ display: 'block', fontSize: '0.7rem' }}>
-                        จ่ายคนขับ
+                        ค่าเบี้ยเลี้ยง
                       </Typography>
                       <Typography variant="body2" sx={{ fontWeight: 600, color: 'warning.main' }}>
-                        {(record.driverExpenses || 0).toLocaleString('th-TH', { maximumFractionDigits: 0 })} บ.
+                        {(record.allowance || 0).toLocaleString('th-TH', { maximumFractionDigits: 0 })} บ.
                       </Typography>
                     </Box>
                     <Box>
                       <Typography variant="caption" color="text.secondary" sx={{ display: 'block', fontSize: '0.7rem' }}>
-                        ค่าใช้จ่ายบริษัท
+                        ค่าพัสดุ
                       </Typography>
-                      <Typography variant="body2" sx={{ fontWeight: 600, color: 'info.main' }}>
-                        {(record.companyExpenses || 0).toLocaleString('th-TH', { maximumFractionDigits: 0 })} บ.
+                      <Typography variant="body2" sx={{ fontWeight: 600, color: 'warning.main' }}>
+                        {(record.suppliesCost || 0).toLocaleString('th-TH', { maximumFractionDigits: 0 })} บ.
                       </Typography>
                     </Box>
                     <Box>
+                      <Typography variant="caption" color="text.secondary" sx={{ display: 'block', fontSize: '0.7rem' }}>
+                        ค่าระยะทาง
+                      </Typography>
+                      <Typography variant="body2" sx={{ fontWeight: 600, color: 'warning.main' }}>
+                        {(record.calculatedDistanceCost || 0).toLocaleString('th-TH', { maximumFractionDigits: 0 })} บ.
+                      </Typography>
+                    </Box>
+                    <Box>
+                      <Typography variant="caption" color="text.secondary" sx={{ display: 'block', fontSize: '0.7rem' }}>
+                        ค่าเที่ยวรถ
+                      </Typography>
+                      <Typography variant="body2" sx={{ fontWeight: 600, color: 'info.main' }}>
+                        {(record.tripFee || 0).toLocaleString('th-TH', { maximumFractionDigits: 0 })} บ.
+                      </Typography>
+                    </Box>
+                  </Box>
+                  
+                  {/* Total Cost Row */}
+                  <Box sx={{ 
+                    display: 'flex', 
+                    justifyContent: 'center',
+                    py: 1.5,
+                    borderTop: '1px solid',
+                    borderColor: 'grey.200'
+                  }}>
+                    <Box sx={{ textAlign: 'center' }}>
                       <Typography variant="caption" color="text.secondary" sx={{ display: 'block', fontSize: '0.7rem' }}>
                         รวมทั้งหมด
                       </Typography>
@@ -2929,56 +3034,25 @@ const totalCosts = driverExpenses + companyExpenses;  // Debug: Log calculation 
                   
                   <Box sx={{ 
                     display: 'grid', 
-                    gridTemplateColumns: { xs: 'repeat(2, 1fr)', sm: 'repeat(3, 1fr)', md: 'repeat(4, 1fr)', lg: 'repeat(7, 1fr)' }, 
+                    gridTemplateColumns: { xs: 'repeat(2, 1fr)', sm: 'repeat(4, 1fr)' }, 
                     gap: 1.5 
                   }}>
                     
-                    
-                    <Box sx={{ textAlign: 'center' }}>
-                      <Typography variant="caption" color="text.secondary">น้ำมัน</Typography>
-                      <Typography variant="body2" fontWeight="medium">
-                        {selectedDriverData.fuelCost !== undefined && selectedDriverData.fuelCost > 0 
-                          ? selectedDriverData.fuelCost.toLocaleString('th-TH', { maximumFractionDigits: 2 })
-                          : '-'
-                        }
-                      </Typography>
-                      
-                    </Box>
-                    
-                    <Box sx={{ textAlign: 'center' }}>
-                      <Typography variant="caption" color="text.secondary">ผ่านทาง</Typography>
-                      <Typography variant="body2" fontWeight="medium">
-                        {selectedDriverData.tolls !== undefined && selectedDriverData.tolls > 0 
-                          ? selectedDriverData.tolls.toLocaleString('th-TH', { maximumFractionDigits: 2 })
-                          : '-'
-                        }
-                      </Typography>
-                    </Box>
-                                      
-                    <Box sx={{ textAlign: 'center' }}>
-                      <Typography variant="caption" color="text.secondary">ค่าเช็คระยะ</Typography>
-                      <Typography variant="body2" fontWeight="medium">
-                        {selectedDriverData.distanceCheckFee !== undefined && selectedDriverData.distanceCheckFee > 0 
-                          ? `${selectedDriverData.distanceCheckFee.toLocaleString('th-TH', { maximumFractionDigits: 2 })}`
-                          : '-'
-                        }
-                      </Typography>
-                    </Box>
-                                        
-                    <Box sx={{ textAlign: 'center' }}>
-                      <Typography variant="caption" color="text.secondary">ค่าซ่อมแซม</Typography>
-                      <Typography variant="body2" fontWeight="medium">
-                        {selectedDriverData.repairCost !== undefined && selectedDriverData.repairCost > 0 
-                          ? selectedDriverData.repairCost.toLocaleString('th-TH', { maximumFractionDigits: 2 })
-                          : '-'
-                        }
-                      </Typography>
-                    </Box>
                     <Box sx={{ textAlign: 'center' }}>
                       <Typography variant="caption" color="text.secondary">เบี้ยเลี้ยง</Typography>
                       <Typography variant="body2" fontWeight="medium">
                         {selectedDriverData.allowance !== undefined && selectedDriverData.allowance > 0 
                           ? selectedDriverData.allowance.toLocaleString('th-TH', { maximumFractionDigits: 2 })
+                          : '-'
+                        }
+                      </Typography>
+                    </Box>
+                    
+                    <Box sx={{ textAlign: 'center' }}>
+                      <Typography variant="caption" color="text.secondary">พัสดุที่นำกลับ</Typography>
+                      <Typography variant="body2" fontWeight="medium">
+                        {selectedDriverData.suppliesCost !== undefined && selectedDriverData.suppliesCost > 0 
+                          ? selectedDriverData.suppliesCost.toLocaleString('th-TH', { maximumFractionDigits: 2 })
                           : '-'
                         }
                       </Typography>
@@ -2995,10 +3069,10 @@ const totalCosts = driverExpenses + companyExpenses;  // Debug: Log calculation 
                     </Box>
                     
                     <Box sx={{ textAlign: 'center' }}>
-                      <Typography variant="caption" color="text.secondary">พัสดุที่นำกลับ</Typography>
+                      <Typography variant="caption" color="text.secondary">ค่าเที่ยวรถ</Typography>
                       <Typography variant="body2" fontWeight="medium">
-                        {selectedDriverData.suppliesCost !== undefined && selectedDriverData.suppliesCost > 0 
-                          ? selectedDriverData.suppliesCost.toLocaleString('th-TH', { maximumFractionDigits: 2 })
+                        {selectedDriverData.tripFee !== undefined && selectedDriverData.tripFee > 0 
+                          ? selectedDriverData.tripFee.toLocaleString('th-TH', { maximumFractionDigits: 2 })
                           : '-'
                         }
                       </Typography>
@@ -3013,36 +3087,12 @@ const totalCosts = driverExpenses + companyExpenses;  // Debug: Log calculation 
                     borderTop: 1,
                     borderColor: 'divider'
                   }}>
-                    <Box sx={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 2, textAlign: 'center' }}>
-                      <Box>
-                        <Typography variant="subtitle2" color="info.main" fontWeight="bold">
-                          ค่าใช้จ่ายบริษัท
-                        </Typography>
-                        <Typography variant="body2" color="info.main">
-                          {selectedDriverData.companyExpenses !== undefined && selectedDriverData.companyExpenses > 0 
-                            ? `${selectedDriverData.companyExpenses.toLocaleString('th-TH', { maximumFractionDigits: 2 })} บาท`
-                            : '-'
-                          }
-                        </Typography>
-                      </Box>
-
-                      <Box>
-                        <Typography variant="subtitle2" color="warning.main" fontWeight="bold">
-                          จ่ายคนขับ
-                        </Typography>
-                        <Typography variant="body2" color="warning.main">
-                          {selectedDriverData.driverExpenses !== undefined && selectedDriverData.driverExpenses > 0 
-                            ? `${selectedDriverData.driverExpenses.toLocaleString('th-TH', { maximumFractionDigits: 2 })} บาท`
-                            : '-'
-                          }
-                        </Typography>
-                      </Box>
-                      
-                      <Box>
+                    <Box sx={{ display: 'flex', justifyContent: 'center' }}>
+                      <Box sx={{ textAlign: 'center' }}>
                         <Typography variant="subtitle2" color="success.main" fontWeight="bold">
                           รวมทั้งหมด
                         </Typography>
-                        <Typography variant="body2" color="success.main">
+                        <Typography variant="h6" color="success.main" fontWeight="bold">
                           {selectedDriverData.totalCosts !== undefined && selectedDriverData.totalCosts > 0 
                             ? `${selectedDriverData.totalCosts.toLocaleString('th-TH', { maximumFractionDigits: 2 })} บาท`
                             : '-'

@@ -245,8 +245,11 @@ export default function EditCarPage() {
   }, [params]);
 
   // ตรวจสอบรูปแบบทะเบียนรถไทย
-  const validateThaiLicensePlate = (licensePlate: string): boolean => {
+  const validateThaiLicensePlate = (licensePlate: string, vehicleType: string): boolean => {
     if (!licensePlate.trim()) return true; // อนุญาตให้ว่างเปล่า
+    
+    // ถ้าเป็น Forklift ไม่ต้องตรวจสอบรูปแบบ
+    if (vehicleType === 'ForkLift') return true;
     
     // รูปแบบทะเบียนรถไทย:
     // - 2-3 ตัวอักษร/ตัวเลข (ไทย, อังกฤษ, หรือตัวเลข) + เครื่องหมาย - + 1-4 ตัวเลข
@@ -259,8 +262,8 @@ export default function EditCarPage() {
   useEffect(() => {
     const timeoutId = setTimeout(() => {
       if (formData.licensePlate) {
-        // ตรวจสอบรูปแบบก่อน
-        const isFormatValid = validateThaiLicensePlate(formData.licensePlate);
+        // ตรวจสอบรูปแบบก่อน (ถ้าไม่ใช่ Forklift)
+        const isFormatValid = validateThaiLicensePlate(formData.licensePlate, formData.vehicleType);
         setLicensePlateFormatValid(isFormatValid);
         
         // ถ้ารูปแบบถูกต้องและไม่ใช่ทะเบียนเดิมค่อยตรวจสอบการซ้ำ
@@ -276,7 +279,7 @@ export default function EditCarPage() {
     }, 500);
 
     return () => clearTimeout(timeoutId);
-  }, [formData.licensePlate, originalLicensePlate]);
+  }, [formData.licensePlate, formData.vehicleType, originalLicensePlate]);
 
   // ตรวจสอบทะเบียนรถซ้ำ
   const checkLicensePlate = async (licensePlate: string) => {
@@ -316,14 +319,22 @@ export default function EditCarPage() {
   const handleChange = (e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement> | { target: { name: string; value: string } }) => {
     const { name, value } = e.target;
     
-    // สำหรับทะเบียนรถ: ตรวจสอบรูปแบบตามมาตรฐานไทย
+    // สำหรับทะเบียนรถ: ตรวจสอบรูปแบบตามมาตรฐานไทย (เว้นแต่เป็น Forklift)
     if (name === 'licensePlate') {
-      // อนุญาตเฉพาะตัวอักษรไทย, อังกฤษ, ตัวเลข, เครื่องหมาย - และช่องว่าง
-      const validInput = value.replace(/[^ก-๙a-zA-Z0-9\-\s]/g, '');
-      setFormData(prev => ({
-        ...prev,
-        [name]: validInput
-      }));
+      // ถ้าเป็น Forklift ให้กรอกได้เลย
+      if (formData.vehicleType === 'ForkLift') {
+        setFormData(prev => ({
+          ...prev,
+          [name]: value
+        }));
+      } else {
+        // อนุญาตเฉพาะตัวอักษรไทย, อังกฤษ, ตัวเลข, เครื่องหมาย - และช่องว่าง
+        const validInput = value.replace(/[^ก-๙a-zA-Z0-9\-\s]/g, '');
+        setFormData(prev => ({
+          ...prev,
+          [name]: validInput
+        }));
+      }
     } else {
       setFormData(prev => ({
         ...prev,
@@ -335,7 +346,19 @@ export default function EditCarPage() {
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     
-    // Validation with auto focus
+    // Validation: ต้องเลือกประเภทรถก่อน
+    if (!formData.vehicleType.trim()) {
+      showSnackbar('กรุณาเลือกประเภทรถ', 'error');
+      setTimeout(() => {
+        if (vehicleTypeRef.current) {
+          const input = vehicleTypeRef.current.querySelector('input, [role="combobox"]') as HTMLElement;
+          if (input) input.focus();
+        }
+      }, 100);
+      return;
+    }
+    
+    // Validation: ทะเบียนรถ
     if (!formData.licensePlate.trim()) {
       showSnackbar('กรุณากรอกทะเบียนรถ', 'error');
       setTimeout(() => {
@@ -347,8 +370,8 @@ export default function EditCarPage() {
       return;
     }
 
-    // ตรวจสอบรูปแบบทะเบียนรถ
-    if (!licensePlateFormatValid) {
+    // ตรวจสอบรูปแบบทะเบียนรถ (ถ้าไม่ใช่ Forklift)
+    if (formData.vehicleType !== 'ForkLift' && !licensePlateFormatValid) {
       showSnackbar('รูปแบบทะเบียนรถไม่ถูกต้อง (เช่น กข-1234, 1กก-3456)', 'error');
       setTimeout(() => {
         if (licensePlateRef.current) {
@@ -364,19 +387,6 @@ export default function EditCarPage() {
       setTimeout(() => {
         if (brandRef.current) {
           const input = brandRef.current.querySelector('input, [role="combobox"]') as HTMLElement;
-          if (input) input.focus();
-        }
-      }, 100);
-      return;
-    }
-
-
-
-    if (!formData.vehicleType.trim()) {
-      showSnackbar('กรุณาเลือกประเภทรถ', 'error');
-      setTimeout(() => {
-        if (vehicleTypeRef.current) {
-          const input = vehicleTypeRef.current.querySelector('input, [role="combobox"]') as HTMLElement;
           if (input) input.focus();
         }
       }, 100);
@@ -544,38 +554,8 @@ export default function EditCarPage() {
             </Typography>
             
             <Box sx={{ mb: 3 }}>
-              {/* แถวที่ 1: ทะเบียน + ประเภท + ยี่ห้อ */}
+              {/* แถวที่ 1: ประเภทรถ + ทะเบียน + ยี่ห้อ */}
               <Box sx={{ display: 'grid', gridTemplateColumns: { xs: '1fr', sm: '1fr 1fr', md: '1fr 1fr 1fr' }, gap: 1.5, mb: 2 }}>
-                <Box ref={licensePlateRef}>
-                  <TextField
-                    fullWidth
-                    required
-                    label="ทะเบียนรถ"
-                    name="licensePlate"
-                    value={formData.licensePlate}
-                    onChange={handleChange}
-                    placeholder="เช่น กข-1234, abc-1234, 12-3456"
-                    size="small"
-                    error={licensePlateExists || !licensePlateFormatValid}
-                    helperText={
-                      checkingLicense ? 'กำลังตรวจสอบ...' :
-                      !licensePlateFormatValid && formData.licensePlate ? 'รูปแบบทะเบียนรถไม่ถูกต้อง (เช่น กข-1234, 12-3456)' :
-                      licensePlateExists ? 'ทะเบียนรถนี้มีอยู่ในระบบแล้ว' :
-                      formData.licensePlate && formData.licensePlate !== originalLicensePlate && licensePlateFormatValid ? 'ทะเบียนรถนี้ใช้ได้' : 
-                      formData.licensePlate === originalLicensePlate ? 'ทะเบียนรถเดิม' :
-                      'รูปแบบ: 2-3 ตัวอักษร/ตัวเลข + เครื่องหมาย - + 1-4 ตัวเลข'
-                    }
-                    InputProps={{
-                      endAdornment: checkingLicense ? (
-                        <CircularProgress size={16} />
-                      ) : licensePlateExists || !licensePlateFormatValid ? (
-                        <ErrorIcon color="error" sx={{ fontSize: 20 }} />
-                      ) : formData.licensePlate && formData.licensePlate !== originalLicensePlate && licensePlateFormatValid ? (
-                        <CheckCircleIcon color="success" sx={{ fontSize: 20 }} />
-                      ) : null
-                    }}
-                  />
-                </Box>
                 <Box ref={vehicleTypeRef}>
                   <FormControl fullWidth required size="small">
                     <InputLabel>ประเภทรถ</InputLabel>
@@ -592,6 +572,43 @@ export default function EditCarPage() {
                       ))}
                     </Select>
                   </FormControl>
+                </Box>
+                <Box ref={licensePlateRef}>
+                  <TextField
+                    fullWidth
+                    required
+                    label="ทะเบียนรถ"
+                    name="licensePlate"
+                    value={formData.licensePlate}
+                    onChange={handleChange}
+                    placeholder={formData.vehicleType === 'ForkLift' ? 'กรอกทะเบียนรถ' : 'เช่น กข-1234, abc-1234, 12-3456'}
+                    size="small"
+                    error={licensePlateExists || (!licensePlateFormatValid && formData.vehicleType !== 'ForkLift')}
+                    helperText={
+                      checkingLicense ? 'กำลังตรวจสอบ...' :
+                      formData.vehicleType === 'ForkLift' ? (
+                        licensePlateExists ? 'ทะเบียนรถนี้มีอยู่ในระบบแล้ว' :
+                        formData.licensePlate === originalLicensePlate ? 'ทะเบียนรถเดิม' :
+                        formData.licensePlate ? 'ทะเบียนรถนี้ใช้ได้' : 
+                        'กรอกทะเบียนรถ (กรอกอะไรก็ได้)'
+                      ) : (
+                        !licensePlateFormatValid && formData.licensePlate ? 'รูปแบบทะเบียนรถไม่ถูกต้อง (เช่น กข-1234, 12-3456)' :
+                        licensePlateExists ? 'ทะเบียนรถนี้มีอยู่ในระบบแล้ว' :
+                        formData.licensePlate && formData.licensePlate !== originalLicensePlate && licensePlateFormatValid ? 'ทะเบียนรถนี้ใช้ได้' : 
+                        formData.licensePlate === originalLicensePlate ? 'ทะเบียนรถเดิม' :
+                        'รูปแบบ: 2-3 ตัวอักษร/ตัวเลข + เครื่องหมาย - + 1-4 ตัวเลข'
+                      )
+                    }
+                    InputProps={{
+                      endAdornment: checkingLicense ? (
+                        <CircularProgress size={16} />
+                      ) : licensePlateExists || (!licensePlateFormatValid && formData.vehicleType !== 'ForkLift') ? (
+                        <ErrorIcon color="error" sx={{ fontSize: 20 }} />
+                      ) : formData.licensePlate && formData.licensePlate !== originalLicensePlate && (formData.vehicleType === 'ForkLift' || licensePlateFormatValid) ? (
+                        <CheckCircleIcon color="success" sx={{ fontSize: 20 }} />
+                      ) : null
+                    }}
+                  />
                 </Box>
                 <Box ref={brandRef}>
                   <FormControl fullWidth required size="small">

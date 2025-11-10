@@ -24,6 +24,8 @@ import {
   AdminPanelSettings as AdminIcon,
   Person as PersonIcon,
   ArrowForward as ArrowForwardIcon,
+  Route as RouteIcon,
+  Business as BusinessIcon,
 } from '@mui/icons-material';
 import Layout from '../components/Layout';
 
@@ -78,10 +80,18 @@ export default function SettingsPage() {
     {
       title: 'ตั้งค่าอัตราค่าระยะทาง',
       description: 'จัดการค่าใช้จ่ายต่อกิโลเมตรสำหรับการคำนวณค่าขนส่งในระบบ',
-      icon: <CarIcon sx={{ fontSize: 40 }} />,
+      icon: <RouteIcon sx={{ fontSize: 40 }} />,
       href: '/settings/distance-rate',
       color: 'success',
     },
+    {
+      title: 'ตั้งค่าค่าเที่ยว',
+      description: 'จัดการค่าเที่ยวสำหรับการคำนวณค่าใช้จ่ายในระบบ',
+      icon: <CarIcon sx={{ fontSize: 40 }} />,
+      href: '/settings/trip-fee',
+      color: 'warning',
+    },
+
   ];
 
   // Loading state while checking session

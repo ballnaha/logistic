@@ -1,5 +1,5 @@
 'use client';
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { useRouter } from 'next/navigation';
 import {
   Box,
@@ -214,13 +214,16 @@ export default function AllVehicleTripReportPage() {
 
   // State management
   const [vehicles, setVehicles] = useState<Vehicle[]>([]);
+  const [availableVehicles, setAvailableVehicles] = useState<Vehicle[]>([]); // รถที่มีข้อมูลในเดือนที่เลือก
   const [selectedVehicleId, setSelectedVehicleId] = useState<string>('');
   const [tripRecords, setTripRecords] = useState<TripRecord[]>([]);
   const [loading, setLoading] = useState(false);
+  const [loadingVehicles, setLoadingVehicles] = useState(false); // loading สำหรับ filter รถ
   const [selectedMonth, setSelectedMonth] = useState<string>((new Date().getMonth() + 1).toString()); // เดือนปัจจุบัน (1-12)
   const [selectedYear, setSelectedYear] = useState<string>(new Date().getFullYear().toString());
   const [isExporting, setIsExporting] = useState(false);
   const [distanceRate, setDistanceRate] = useState<number>(3);
+  const [tripFeeRate, setTripFeeRate] = useState<number>(30); // ค่าเที่ยวต่อรอบ
   const minimalRef = useRef<HTMLDivElement | null>(null);
 
   // Months data
@@ -255,17 +258,24 @@ export default function AllVehicleTripReportPage() {
     loadVehicles();
   }, []);
 
-  // Fetch distance rate
+  // Fetch distance rate and trip fee rate
   useEffect(() => {
-    const fetchDistanceRate = async () => {
+    const fetchRates = async () => {
       try {
         const rate = await getDistanceRate();
         setDistanceRate(rate);
+        
+        // Fetch trip fee rate
+        const tripFeeResponse = await fetch('/api/settings/trip-fee');
+        const tripFeeResult = await tripFeeResponse.json();
+        if (tripFeeResponse.ok && tripFeeResult.success && tripFeeResult.data?.tripFee) {
+          setTripFeeRate(tripFeeResult.data.tripFee);
+        }
       } catch (error) {
-        console.error('Error fetching distance rate:', error);
+        console.error('Error fetching rates:', error);
       }
     };
-    fetchDistanceRate();
+    fetchRates();
   }, []);
 
   // Load trip records when filters change
@@ -325,6 +335,79 @@ export default function AllVehicleTripReportPage() {
       showSnackbar('เกิดข้อผิดพลาดในการโหลดข้อมูลรถ', 'error');
     }
   };
+
+  // ดึงรายการรถที่มีข้อมูลในเดือน/ปีที่เลือก
+  const fetchAvailableVehicles = useCallback(async () => {
+    if (!selectedMonth || !selectedYear) {
+      setAvailableVehicles([]);
+      return;
+    }
+
+    try {
+      setLoadingVehicles(true);
+      
+      // Calculate month range
+      const yearNum = parseInt(selectedYear);
+      let startDate, endDate;
+      
+      if (selectedMonth === 'all') {
+        // All months in the selected year
+        startDate = new Date(yearNum, 0, 1); // January 1st
+        endDate = new Date(yearNum, 11, 31); // December 31st
+      } else {
+        // Specific month
+        const monthNum = parseInt(selectedMonth);
+        startDate = new Date(yearNum, monthNum - 1, 1);
+        endDate = new Date(yearNum, monthNum, 0); // Last day of the month
+      }
+
+      const params = new URLSearchParams();
+      params.append('startDate', toYmdLocal(startDate));
+      params.append('endDate', toYmdLocal(endDate));
+
+      // Query trip records to get unique vehicle IDs
+      const response = await fetch(`/api/trip-records?page=1&limit=1000&${params.toString()}`);
+      const result = await response.json();
+      
+      if (response.ok) {
+        const trips = result.trips || result.data || [];
+        
+        // Extract unique vehicle IDs from trips
+        const vehicleIds = new Set<number>();
+        trips.forEach((trip: any) => {
+          if (trip.vehicleId) {
+            vehicleIds.add(trip.vehicleId);
+          }
+        });
+
+        // Filter vehicles that have trips in this period and are trucks
+        const filtered = vehicles.filter(v => 
+          vehicleIds.has(v.id) && v.vehicleType?.toLowerCase() === 'truck'
+        );
+        
+        console.log(`📋 [Available Vehicles] Found ${filtered.length} trucks with trips in selected period`);
+        setAvailableVehicles(filtered);
+      } else {
+        setAvailableVehicles([]);
+      }
+    } catch (error) {
+      console.error('Error fetching available vehicles:', error);
+      setAvailableVehicles([]);
+    } finally {
+      setLoadingVehicles(false);
+    }
+  }, [selectedMonth, selectedYear, vehicles]);
+
+  // Load available vehicles when month or year changes
+  useEffect(() => {
+    if (vehicles.length > 0 && selectedMonth && selectedYear) {
+      fetchAvailableVehicles();
+      // Reset selected vehicle when month/year changes to force user to reselect
+      setSelectedVehicleId('');
+    } else {
+      setAvailableVehicles([]);
+    }
+  }, [selectedMonth, selectedYear, vehicles.length, fetchAvailableVehicles]);
 
   const loadTripRecords = async () => {
     console.log('Loading trip records with conditions:', {
@@ -513,8 +596,11 @@ export default function AllVehicleTripReportPage() {
     return sum + itemsTotal;
   }, 0);
 
-  // Calculate driver expenses: ค่าเบี้ยเลี้ยง + ค่าพัสดุ + ค่าระยะทาง
-  const totalDriverExpenses = totalAllowance + totalItemsValue + totalDistanceCost;
+  // Calculate trip fee for all trips (ค่าเที่ยว = จำนวนเที่ยว × ค่าเที่ยวต่อรอบ)
+  const totalTripFee = (Array.isArray(tripRecords) ? tripRecords.length : 0) * tripFeeRate;
+
+  // Calculate driver expenses: ค่าเบี้ยเลี้ยง + ค่าพัสดุ + ค่าระยะทาง + ค่าเที่ยว
+  const totalDriverExpenses = totalAllowance + totalItemsValue + totalDistanceCost + totalTripFee;
 
   // คำนวณส่วนต่างระยะทาง (รวมแบบเครื่องหมาย + -)
   const totalDistanceDifference = (Array.isArray(tripRecords) ? tripRecords : []).reduce((sum, trip) => {
@@ -1395,7 +1481,7 @@ export default function AllVehicleTripReportPage() {
                                 padding: '2px',
                                 textAlign: 'center',
                                 fontWeight: 700,
-                                width: '8%'
+                                width: '7%'
                               }}>ค่าระยะทาง</th>
                               
                               <th style={{ 
@@ -1403,7 +1489,15 @@ export default function AllVehicleTripReportPage() {
                                 padding: '2px',
                                 textAlign: 'center',
                                 fontWeight: 700,
-                                width: '18%'
+                                width: '6%'
+                              }}>ค่าเที่ยว</th>
+                              
+                              <th style={{ 
+                                border: '1px solid #000',
+                                padding: '2px',
+                                textAlign: 'center',
+                                fontWeight: 700,
+                                width: '17%'
                               }}>ค่าพัสดุ</th>
                               <th style={{ 
                                 border: '1px solid #000',
@@ -1465,11 +1559,14 @@ export default function AllVehicleTripReportPage() {
                                 // Calculate total products for this customer
                                 const totalProducts = customerItems.reduce((s, r) => s + (r.totalPrice || 0), 0);
                                 
+                                // Calculate trip fee for this group (จำนวนเที่ยว × ค่าเที่ยวต่อรอบ)
+                                const tripFeeForGroup = list.length * tripFeeRate;
+                                
                                 // Calculate driver expenses: เฉพาะค่าพัสดุ (เบี้ยเลี้ยงและค่าระยะทางแยกคอลัมน์แล้ว)
                                 const driverExpenses = totalProducts;
                                 
-                                // Calculate grand total (รวมทุกอย่าง)
-                                const grandTotal = totalAllowance + totalProducts + totalDistanceCost + companyExpenses;
+                                // Calculate grand total (รวมทุกอย่าง รวมค่าเที่ยว)
+                                const grandTotal = totalAllowance + totalProducts + totalDistanceCost + tripFeeForGroup + companyExpenses;
                                 
                                 // Calculate total signed difference by summing individual trip differences with sign
                                 const totalAbsoluteDifference = list.reduce((sum, trip) => {
@@ -1553,6 +1650,15 @@ export default function AllVehicleTripReportPage() {
                                         <div style={{ fontSize: '12px', fontWeight: 700 }}>฿{formatCurrency(totalDistanceCost)}</div>
                                       </td>
                                       
+                                      {/* Trip Fee Column */}
+                                      <td style={{ 
+                                        border: '1px solid #000',
+                                        padding: '2px',
+                                        textAlign: 'center'
+                                      }}>
+                                        <div style={{ fontSize: '12px', fontWeight: 700 }}>฿{formatCurrency(tripFeeForGroup)}</div>
+                                        
+                                      </td>
 
                                       {/* Driver Expenses: ค่าพัสดุ only (เบี้ยเลี้ยงและค่าระยะทางแยกคอลัมน์แล้ว) */}
                                       <td style={{ 
@@ -1666,7 +1772,21 @@ export default function AllVehicleTripReportPage() {
                                   return formatCurrency(totalDistanceCost);
                                 })()}
                               </td>
-                              {/* Column 9: Driver Expenses Total (Items Only - allowance and distance cost are separate) */}
+                              {/* Column 7: Trip Fee Total */}
+                              <td style={{ 
+                                border: '1px solid #000',
+                                padding: '4px',
+                                textAlign: 'center',
+                                fontWeight: 700,
+                                fontSize: '13px',
+                                
+                              }}>
+                                ฿{(() => {
+                                  const totalTripFee = vehicleTrips.length * tripFeeRate;
+                                  return formatCurrency(totalTripFee);
+                                })()}
+                              </td>
+                              {/* Column 8: Driver Expenses Total (Items Only - allowance and distance cost are separate) */}
                               <td style={{ 
                                 border: '1px solid #000',
                                 padding: '4px',
@@ -1734,6 +1854,7 @@ export default function AllVehicleTripReportPage() {
                                     const estimatedDist = typeof trip.estimatedDistance === 'string' ? parseFloat(trip.estimatedDistance) || 0 : trip.estimatedDistance || 0;
                                     return sum + (estimatedDist * distanceRate);
                                   }, 0);
+                                  const totalTripFee = vehicleTrips.length * tripFeeRate;
                                   const totalExpenses = vehicleTrips.reduce((sum, trip) => {
                                     const distanceCheckFee = typeof trip.distanceCheckFee === 'string' ? parseFloat(trip.distanceCheckFee) || 0 : trip.distanceCheckFee || 0;
                                     const fuelCost = typeof trip.fuelCost === 'string' ? parseFloat(trip.fuelCost) || 0 : trip.fuelCost || 0;
@@ -1741,7 +1862,7 @@ export default function AllVehicleTripReportPage() {
                                     const repairCost = typeof trip.repairCost === 'string' ? parseFloat(trip.repairCost) || 0 : trip.repairCost || 0;
                                     return sum + distanceCheckFee + fuelCost + tollFee + repairCost;
                                   }, 0);
-                                  const grandTotal = totalAllowance + totalDistanceCost + totalItems + totalExpenses;
+                                  const grandTotal = totalAllowance + totalDistanceCost + totalTripFee + totalItems + totalExpenses;
                                   return formatCurrency(grandTotal);
                                 })()}
                               </td>
@@ -1951,7 +2072,10 @@ export default function AllVehicleTripReportPage() {
                                         return sum + allowance;
                                       }, 0);
 
-                                      const driverExpenses = totalAllowance + vehicleProducts + vehicleDistanceCost;
+                                      // Calculate trip fee for all trips of this vehicle
+                                      const vehicleTripFee = vehicleTrips.length * tripFeeRate;
+                                      
+                                      const driverExpenses = totalAllowance + vehicleProducts + vehicleDistanceCost + vehicleTripFee;
                                       const grandTotal = driverExpenses + vehicleCompanyExpenses;
 
                                       return (
@@ -2648,7 +2772,10 @@ export default function AllVehicleTripReportPage() {
                                         return sum + allowance;
                                       }, 0);
 
-                                      const driverExpenses = totalAllowance + vehicleProducts + vehicleDistanceCost;
+                                      // Calculate trip fee for all trips
+                                      const vehicleTripFee = tripRecords.length * tripFeeRate;
+                                      
+                                      const driverExpenses = totalAllowance + vehicleProducts + vehicleDistanceCost + vehicleTripFee;
                                       const grandTotal = driverExpenses + vehicleCompanyExpenses;
 
                                       return (
@@ -2819,15 +2946,21 @@ export default function AllVehicleTripReportPage() {
         onChange={(e) => {
           setSelectedVehicleId(e.target.value);
         }}
+        disabled={loadingVehicles || !selectedMonth || !selectedYear}
       >
         <MenuItem value="">-- เลือกทะเบียน --</MenuItem>
-        {(Array.isArray(vehicles) ? vehicles : [])
-          .filter((vehicle) => vehicle.vehicleType?.toLowerCase() === 'truck')
-          .map((vehicle) => (
-          <MenuItem key={vehicle.id} value={vehicle.id.toString()}>
-            {vehicle.licensePlate} - {vehicle.brand} {vehicle.model} ({getVehicleTypeLabel(vehicle.vehicleType)})
+        {loadingVehicles ? (
+          <MenuItem disabled>
+            <CircularProgress size={20} sx={{ mr: 1 }} />
+            กำลังโหลด...
           </MenuItem>
-        ))}
+        ) : (
+          (Array.isArray(availableVehicles) ? availableVehicles : []).map((vehicle) => (
+            <MenuItem key={vehicle.id} value={vehicle.id.toString()}>
+              {vehicle.licensePlate} - {vehicle.brand} {vehicle.model} ({getVehicleTypeLabel(vehicle.vehicleType)})
+            </MenuItem>
+          ))
+        )}
       </Select>
     </FormControl>
 
@@ -3274,8 +3407,9 @@ export default function AllVehicleTripReportPage() {
                               เบี้ยเลี้ยง <strong>฿{formatCurrency(vehicleTotalAllowance)}</strong> | 
                               ค่าระยะทาง <strong>฿{formatCurrency(vehicleTotalEstimatedDistance * distanceRate)}</strong> |
                               พัสดุ <strong>฿{formatCurrency(vehicleTotalItemsValue)}</strong> |
+                              ค่าเที่ยว <strong>฿{formatCurrency(vehicleTrips.length * tripFeeRate)}</strong> |
                               ค่าอื่นๆ <strong>฿{formatCurrency(vehicleTotalDistanceCheckFee + vehicleTotalFuelCost + vehicleTotalTollFee + vehicleTotalRepairCost)}</strong> | 
-                              รวม <strong style={{ color: "green" }}>฿{formatCurrency(vehicleTotalAllowance + vehicleTotalItemsValue + (vehicleTotalEstimatedDistance * distanceRate) + vehicleTotalDistanceCheckFee + vehicleTotalFuelCost + vehicleTotalTollFee + vehicleTotalRepairCost)}</strong>
+                              รวม <strong style={{ color: "green" }}>฿{formatCurrency(vehicleTotalAllowance + vehicleTotalItemsValue + (vehicleTotalEstimatedDistance * distanceRate) + (vehicleTrips.length * tripFeeRate) + vehicleTotalDistanceCheckFee + vehicleTotalFuelCost + vehicleTotalTollFee + vehicleTotalRepairCost)}</strong>
                             </Typography>
                           </Box>
                           
@@ -3410,8 +3544,11 @@ export default function AllVehicleTripReportPage() {
                                           ];
                                           const totalCompanyExpenses = companyExpenses.reduce((sum, expense) => sum + expense.total, 0);
 
-                                          // Calculate driver expenses  
-                                          const totalDriverExpenses = totalAllowance + sub + distanceCost;
+                                          // Calculate trip fee for this group
+                                          const tripFeeForGroup = list.length * tripFeeRate;
+                                          
+                                          // Calculate driver expenses (รวมค่าเที่ยว)
+                                          const totalDriverExpenses = totalAllowance + sub + distanceCost + tripFeeForGroup;
 
                                           return (
                                             <>
@@ -3433,7 +3570,7 @@ export default function AllVehicleTripReportPage() {
                                               <Typography variant="body2" sx={{ fontWeight: 500, color: 'success.main' }}>
                                                 ค่าใช้จ่ายที่ต้องจ่ายพนักงานขับรถ: <strong>฿{formatCurrency(totalDriverExpenses)}</strong>
                                                 <Typography component="span" sx={{ color: 'text.secondary', fontSize: '0.85rem', ml: 0.5 }}>
-                                                  (เบี้ยเลี้ยง ฿{formatCurrency(totalAllowance || 0)}, พัสดุ ฿{formatCurrency(sub || 0)}, ค่าระยะทาง ฿{formatCurrency(distanceCost || 0)})
+                                                  (เบี้ยเลี้ยง ฿{formatCurrency(totalAllowance || 0)}, พัสดุ ฿{formatCurrency(sub || 0)}, ค่าระยะทาง ฿{formatCurrency(distanceCost || 0)}, ค่าเที่ยว ฿{formatCurrency(tripFeeForGroup)})
                                                 </Typography>
                                               </Typography>
                                             </>
@@ -3655,8 +3792,11 @@ export default function AllVehicleTripReportPage() {
                                           ];
                                           const totalCompanyExpenses = companyExpenses.reduce((sum, expense) => sum + expense.total, 0);
 
-                                          // Calculate driver expenses  
-                                          const totalDriverExpenses = totalAllowance + sub + distanceCost;
+                                          // Calculate trip fee for this group
+                                          const tripFeeForGroup = list.length * tripFeeRate;
+                                          
+                                          // Calculate driver expenses (รวมค่าเที่ยว)
+                                          const totalDriverExpenses = totalAllowance + sub + distanceCost + tripFeeForGroup;
 
                                           return (
                                             <>
@@ -3735,7 +3875,7 @@ export default function AllVehicleTripReportPage() {
                                                   color: 'text.secondary', 
                                                   fontSize: { xs: '0.9rem', sm: '0.85rem' }
                                                 }}>
-                                                  (เบี้ยเลี้ยง ฿{formatCurrency(totalAllowance || 0)}, พัสดุ ฿{formatCurrency(sub || 0)}, ค่าระยะทาง ฿{formatCurrency(distanceCost || 0)})
+                                                  (เบี้ยเลี้ยง ฿{formatCurrency(totalAllowance || 0)}, พัสดุ ฿{formatCurrency(sub || 0)}, ค่าระยะทาง ฿{formatCurrency(distanceCost || 0)}, ค่าเที่ยว ฿{formatCurrency(tripFeeForGroup)})
                                                 </Typography>
                                               </Box>
                                             </>
@@ -3930,8 +4070,11 @@ export default function AllVehicleTripReportPage() {
                                           ];
                                           const totalCompanyExpenses = companyExpenses.reduce((sum, expense) => sum + expense.total, 0);
 
-                                          // Calculate driver expenses  
-                                          const totalDriverExpenses = totalAllowance + sub + distanceCost;
+                                          // Calculate trip fee for this group
+                                          const tripFeeForGroup = list.length * tripFeeRate;
+                                          
+                                          // Calculate driver expenses (รวมค่าเที่ยว)
+                                          const totalDriverExpenses = totalAllowance + sub + distanceCost + tripFeeForGroup;
 
                                           return (
                                             <>
@@ -3953,7 +4096,7 @@ export default function AllVehicleTripReportPage() {
                                               <Typography variant="body2" sx={{ fontWeight: 500, color: 'success.main' }}>
                                                 ค่าใช้จ่ายที่ต้องจ่ายพนักงานขับรถ: <strong>฿{formatCurrency(totalDriverExpenses)}</strong>
                                                 <Typography component="span" sx={{ color: 'text.secondary', fontSize: '0.75rem', ml: 0.5 }}>
-                                                  (เบี้ยเลี้ยง ฿{formatCurrency(totalAllowance || 0)}, พัสดุ ฿{formatCurrency(sub || 0)}, ค่าระยะทาง ฿{formatCurrency(distanceCost || 0)})
+                                                  (เบี้ยเลี้ยง ฿{formatCurrency(totalAllowance || 0)}, พัสดุ ฿{formatCurrency(sub || 0)}, ค่าระยะทาง ฿{formatCurrency(distanceCost || 0)}, ค่าเที่ยว ฿{formatCurrency(tripFeeForGroup)})
                                                 </Typography>
                                               </Typography>
                                             </>

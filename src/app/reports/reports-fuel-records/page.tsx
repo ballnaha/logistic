@@ -168,6 +168,8 @@ export default function FuelRecordsReport() {
   const [loading, setLoading] = useState(false);
   const [isExporting, setIsExporting] = useState(false);
   const [vehicles, setVehicles] = useState<Vehicle[]>([]);
+  const [availableVehicles, setAvailableVehicles] = useState<Vehicle[]>([]); // รถที่มีข้อมูลในเดือนที่เลือก
+  const [loadingVehicles, setLoadingVehicles] = useState(false); // loading สำหรับ filter รถ
   const [fuelRecords, setFuelRecords] = useState<FuelRecord[]>([]);
   const [filteredRecords, setFilteredRecords] = useState<FuelRecord[]>([]);
   const [page, setPage] = useState(0);
@@ -338,6 +340,15 @@ export default function FuelRecordsReport() {
     loadFuelRecords();
   }, [filters]);
 
+  // Load available vehicles when month or year changes
+  useEffect(() => {
+    if (vehicles.length > 0 && filters.month && filters.year) {
+      fetchAvailableVehicles();
+    } else {
+      setAvailableVehicles([]);
+    }
+  }, [filters.month, filters.year, vehicles.length]);
+
   const loadVehicles = async () => {
     try {
       const response = await fetch('/api/vehicles');
@@ -465,6 +476,73 @@ export default function FuelRecordsReport() {
       showSnackbar('เกิดข้อผิดพลาดในการดึงข้อมูลการเติมน้ำมัน', 'error');
     } finally {
       setLoading(false);
+    }
+  };
+
+  // ดึงรายการรถที่มีข้อมูลในเดือน/ปีที่เลือก
+  const fetchAvailableVehicles = async () => {
+    if (!filters.month || !filters.year) {
+      setAvailableVehicles([]);
+      return;
+    }
+
+    try {
+      setLoadingVehicles(true);
+      
+      // Calculate month range
+      const yearNum = parseInt(filters.year);
+      let startDate, endDate;
+      
+      if (filters.month === '') {
+        // All months in the selected year
+        startDate = new Date(yearNum, 0, 1); // January 1st
+        endDate = new Date(yearNum, 11, 31); // December 31st
+      } else {
+        // Specific month
+        const monthNum = parseInt(filters.month);
+        startDate = new Date(yearNum, monthNum - 1, 1);
+        endDate = new Date(yearNum, monthNum, 0); // Last day of the month
+      }
+
+      const formatDate = (date: Date) => {
+        const y = date.getFullYear();
+        const m = String(date.getMonth() + 1).padStart(2, '0');
+        const d = String(date.getDate()).padStart(2, '0');
+        return `${y}-${m}-${d}`;
+      };
+
+      const params = new URLSearchParams();
+      params.append('startDate', formatDate(startDate));
+      params.append('endDate', formatDate(endDate));
+
+      // Query fuel records to get unique vehicle IDs
+      const response = await fetch(`/api/fuel-records?page=1&limit=1000&${params.toString()}`);
+      const result = await response.json();
+      
+      if (response.ok) {
+        const records = result.data || [];
+        
+        // Extract unique vehicle IDs from fuel records
+        const vehicleIds = new Set<number>();
+        records.forEach((record: any) => {
+          if (record.vehicleId) {
+            vehicleIds.add(record.vehicleId);
+          }
+        });
+
+        // Filter vehicles that have fuel records in this period
+        const filtered = vehicles.filter(v => vehicleIds.has(v.id));
+        
+        console.log(`📋 [Available Vehicles] Found ${filtered.length} vehicles with fuel records in selected period`);
+        setAvailableVehicles(filtered);
+      } else {
+        setAvailableVehicles([]);
+      }
+    } catch (error) {
+      console.error('Error fetching available vehicles:', error);
+      setAvailableVehicles([]);
+    } finally {
+      setLoadingVehicles(false);
     }
   };
 
@@ -607,6 +685,10 @@ export default function FuelRecordsReport() {
       const imgHeight = (canvas.height * contentWidth) / canvas.width;
       const contentHeight = pageHeight - margin * 2 - 12; // เผื่อ footer
 
+      // คำนวณความสูงของ header และ summary (ส่วนบน)
+      const headerSectionHeight = 120; // ประมาณความสูงของ header + summary (ในหน่วย mm)
+      const tableHeaderHeight = 25; // ความสูงของ header ตาราง (ในหน่วย mm)
+      
       const totalPages = Math.ceil(imgHeight / contentHeight);
       let renderedHeight = 0;
 
@@ -628,10 +710,56 @@ export default function FuelRecordsReport() {
         const pageImg = pageCanvas.toDataURL('image/png');
         const drawHeight = (sH * contentWidth) / sW;
 
-        doc.addImage(pageImg, 'PNG', margin, margin, contentWidth, drawHeight);
+        // เพิ่ม table header ในหน้าที่ 2 เป็นต้นไป
+        if (page > 1) {
+          // สร้าง header ของตารางเป็น HTML แล้วแปลงเป็นรูปภาพ (เหมือนหน้าแรกทุกอย่าง)
+          const headerHTML = `
+            <div style="font-family: 'Sarabun', Arial, sans-serif; width: 860px; background: white;">
+              <table style="width: 100%; border-collapse: collapse; font-size: 13px;">
+                <thead>
+                  <tr style="background: #fff;">
+                    <th style="border: 1px solid #000; padding: 3px; text-align: center; color: black; font-weight: 700; width: 12%; background: #fff; line-height: 1.2;">วันที่เติม</th>
+                    <th style="border: 1px solid #000; padding: 3px; text-align: center; color: black; font-weight: 700; width: 15%; background: #fff; line-height: 1.2;">คนขับ</th>
+                    <th style="border: 1px solid #000; padding: 3px; text-align: center; color: black; font-weight: 700; width: 12%; background: #fff; line-height: 1.2;">ปริมาณ (ลิตร)</th>
+                    <th style="border: 1px solid #000; padding: 3px; text-align: center; color: black; font-weight: 700; width: 10%; background: #fff; line-height: 1.2;">เลขไมล์</th>
+                    <th style="border: 1px solid #000; padding: 3px; text-align: center; color: black; font-weight: 700; width: 18%; background: #fff; line-height: 1.2;">หมายเหตุ</th>
+                  </tr>
+                </thead>
+              </table>
+            </div>
+          `;
+          
+          const headerDiv = document.createElement('div');
+          headerDiv.innerHTML = headerHTML;
+          headerDiv.style.position = 'absolute';
+          headerDiv.style.left = '-9999px';
+          headerDiv.style.top = '0';
+          document.body.appendChild(headerDiv);
+          
+          const headerCanvas = await html2canvas(headerDiv, {
+            scale: 2,
+            useCORS: true,
+            backgroundColor: '#ffffff'
+          });
+          
+          document.body.removeChild(headerDiv);
+          
+          const headerImg = headerCanvas.toDataURL('image/png');
+          const headerHeight = (headerCanvas.height * contentWidth) / headerCanvas.width;
+          
+          // วาด header ก่อน
+          doc.addImage(headerImg, 'PNG', margin, margin, contentWidth, headerHeight);
+          
+          // วาดข้อมูลตารางต่อจาก header
+          doc.addImage(pageImg, 'PNG', margin, margin + headerHeight, contentWidth, drawHeight);
+        } else {
+          // หน้าแรกไม่ต้องเพิ่ม header (มีอยู่แล้วในรูปภาพ)
+          doc.addImage(pageImg, 'PNG', margin, margin, contentWidth, drawHeight);
+        }
 
         // footer
         doc.setFontSize(8);
+        doc.setFont('helvetica', 'normal');
         doc.text(`Print Date: ${new Date().toLocaleString('th-TH')}`, margin, pageHeight - 6);
         doc.text(`Page ${page}/${totalPages}`, pageWidth - margin, pageHeight - 6, { align: 'right' });
 
@@ -802,7 +930,7 @@ export default function FuelRecordsReport() {
                       </tr>
                     </thead>
                     <tbody>
-                      ${group.records.map(record => `
+                      ${[...group.records].sort((a, b) => new Date(a.fuelDate).getTime() - new Date(b.fuelDate).getTime()).map(record => `
                         <tr>
                           <td style="border: 1px solid #000; padding: 4px; text-align: center; color: black;">${format(new Date(record.fuelDate), 'dd/MM/yyyy')}</td>
                           <td style="border: 1px solid #000; padding: 4px; color: black;">${record.driverName || record.vehicle.driverName || '-'}</td>
@@ -960,7 +1088,52 @@ export default function FuelRecordsReport() {
             const pageImg = pageCanvas.toDataURL('image/png');
             const drawHeight = (sH * contentWidth) / canvas.width;
 
-            doc.addImage(pageImg, 'PNG', margin, margin, contentWidth, drawHeight);
+            // เพิ่ม table header สำหรับหน้าที่ 2+ ของรถคันเดียวกัน (ถ้าตารางยาวเกินหน้า)
+            if (vehiclePage > 1) {
+              // สร้าง header ของตารางเป็น HTML แล้วแปลงเป็นรูปภาพ (ใช้ค่าเดียวกับหน้าแรกทุกอย่าง)
+              const headerHTML = `
+                <div style="font-family: 'Sarabun', Arial, sans-serif; width: 860px; background: white;">
+                  <table style="width: 100%; border-collapse: collapse; font-size: 12px;">
+                    <thead>
+                      <tr style="background: #fff;">
+                        <th style="border: 1px solid #000; padding: 3px; text-align: center; color: black; font-weight: 700; background: #fff; line-height: 1.2;">วันที่เติม</th>
+                        <th style="border: 1px solid #000; padding: 3px; text-align: center; color: black; font-weight: 700; background: #fff; line-height: 1.2;">คนขับ</th>
+                        <th style="border: 1px solid #000; padding: 3px; text-align: center; color: black; font-weight: 700; background: #fff; line-height: 1.2;">ปริมาณ (ลิตร)</th>
+                        <th style="border: 1px solid #000; padding: 3px; text-align: center; color: black; font-weight: 700; background: #fff; line-height: 1.2;">เลขไมล์</th>
+                        <th style="border: 1px solid #000; padding: 3px; text-align: center; color: black; font-weight: 700; background: #fff; line-height: 1.2;">หมายเหตุ</th>
+                      </tr>
+                    </thead>
+                  </table>
+                </div>
+              `;
+              
+              const headerDiv = document.createElement('div');
+              headerDiv.innerHTML = headerHTML;
+              headerDiv.style.position = 'absolute';
+              headerDiv.style.left = '-9999px';
+              headerDiv.style.top = '0';
+              document.body.appendChild(headerDiv);
+              
+              const headerCanvas = await html2canvas(headerDiv, {
+                scale: 2,
+                useCORS: true,
+                backgroundColor: '#ffffff'
+              });
+              
+              document.body.removeChild(headerDiv);
+              
+              const headerImg = headerCanvas.toDataURL('image/png');
+              const headerHeight = (headerCanvas.height * contentWidth) / headerCanvas.width;
+              
+              // วาด header ก่อน
+              doc.addImage(headerImg, 'PNG', margin, margin, contentWidth, headerHeight);
+              
+              // วาดข้อมูลตารางต่อจาก header
+              doc.addImage(pageImg, 'PNG', margin, margin + headerHeight, contentWidth, drawHeight);
+            } else {
+              // หน้าแรกไม่ต้องเพิ่ม header (มีอยู่แล้วในรูปภาพ)
+              doc.addImage(pageImg, 'PNG', margin, margin, contentWidth, drawHeight);
+            }
             
             renderedHeight += contentHeight;
           }
@@ -1180,7 +1353,7 @@ export default function FuelRecordsReport() {
                 </tr>
               </thead>
               <tbody>
-                {filteredRecords.map((record, index) => (
+                {[...filteredRecords].sort((a, b) => new Date(a.fuelDate).getTime() - new Date(b.fuelDate).getTime()).map((record, index) => (
                   <tr key={record.id}>
                     <td style={{ border: '1px solid #000', padding: '6px', textAlign: 'center', fontSize: '12px' }}>
                       {format(new Date(record.fuelDate), 'dd/MM/yyyy')}
@@ -1294,13 +1467,20 @@ export default function FuelRecordsReport() {
                 value={filters.vehicleId}
                 label="เลือกทะเบียนรถ"
                 onChange={(e) => setFilters(prev => ({ ...prev, vehicleId: e.target.value }))}
+                disabled={loadingVehicles}
               >
                 <MenuItem value="">-- ทั้งหมด --</MenuItem>
-                {vehicles.map((vehicle) => (
-                  <MenuItem key={vehicle.id} value={vehicle.id.toString()}>
-                    {vehicle.licensePlate} - {vehicle.brand} {vehicle.model} ({getVehicleTypeLabel(vehicle.vehicleType)})
-                  </MenuItem>
-                ))}
+                {loadingVehicles ? (
+                  <MenuItem disabled>กำลังโหลด...</MenuItem>
+                ) : availableVehicles.length > 0 ? (
+                  availableVehicles.map((vehicle) => (
+                    <MenuItem key={vehicle.id} value={vehicle.id.toString()}>
+                      {vehicle.licensePlate} - {vehicle.brand} {vehicle.model} ({getVehicleTypeLabel(vehicle.vehicleType)})
+                    </MenuItem>
+                  ))
+                ) : (
+                  <MenuItem disabled>ไม่มีรถที่มีข้อมูลในช่วงเวลานี้</MenuItem>
+                )}
               </Select>
             </FormControl>
 

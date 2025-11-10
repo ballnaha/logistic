@@ -123,6 +123,7 @@ interface TripRecord {
   fuelCost?: number;
   tollFee?: number;
   repairCost?: number;
+  tripFee?: number;
   documentNumber?: string;
   remark: string;
   createdAt: string;
@@ -189,10 +190,10 @@ export default function TripRecordsPage() {
   const [totalPages, setTotalPages] = useState(1);
   const [totalItems, setTotalItems] = useState(0);
   const [itemsPerPage, setItemsPerPage] = useState(20);
-  const [sortBy, setSortBy] = useState('departureDate');
-  const [sortOrder, setSortOrder] = useState<'asc' | 'desc'>('desc');
   const [selectedVehicleId, setSelectedVehicleId] = useState<string>('');
-  const [vehicleOptions, setVehicleOptions] = useState<Array<{ id: number; licensePlate: string }>>([]);
+  const [selectedMonth, setSelectedMonth] = useState<string>((new Date().getMonth() + 1).toString());
+  const [selectedYear, setSelectedYear] = useState<string>(new Date().getFullYear().toString());
+  const [vehicleOptions, setVehicleOptions] = useState<Array<{ id: number; licensePlate: string; vehicleType: string }>>([]);
   const [loadingVehicles, setLoadingVehicles] = useState(false);
   const [viewMode, setViewMode] = useState<'table' | 'card'>('table');
   const [viewDialog, setViewDialog] = useState<{ open: boolean; record: TripRecord | null }>({
@@ -363,12 +364,41 @@ export default function TripRecordsPage() {
         page: page.toString(),
         limit: itemsPerPage.toString(),
         search: searchTerm,
-        sortBy: sortBy,
-        sortOrder: sortOrder,
+        sortBy: 'departureDate',
+        sortOrder: 'desc',
       });
 
       if (selectedVehicleId) {
         params.set('vehicleId', selectedVehicleId);
+      }
+
+      // Add date range filter based on year and month
+      if (selectedYear) {
+        const year = parseInt(selectedYear);
+        let startDate: Date;
+        let endDate: Date;
+        
+        if (selectedMonth) {
+          // Specific month and year
+          const month = parseInt(selectedMonth);
+          startDate = new Date(year, month - 1, 1); // First day of month
+          endDate = new Date(year, month, 0); // Last day of month
+        } else {
+          // Whole year
+          startDate = new Date(year, 0, 1); // Jan 1
+          endDate = new Date(year, 11, 31); // Dec 31
+        }
+        
+        // Format as YYYY-MM-DD
+        const formatDate = (date: Date) => {
+          const y = date.getFullYear();
+          const m = String(date.getMonth() + 1).padStart(2, '0');
+          const d = String(date.getDate()).padStart(2, '0');
+          return `${y}-${m}-${d}`;
+        };
+        
+        params.append('startDate', formatDate(startDate));
+        params.append('endDate', formatDate(endDate));
       }
 
       const apiUrl = `/api/trip-records?${params}`;
@@ -377,9 +407,9 @@ export default function TripRecordsPage() {
         page,
         limit: itemsPerPage,
         search: searchTerm,
-        sortBy,
-        sortOrder,
         selectedVehicleId,
+        selectedMonth,
+        selectedYear,
         url: apiUrl
       });
 
@@ -422,21 +452,78 @@ export default function TripRecordsPage() {
     }
   };
 
-  // Fetch vehicle options (active vehicles)
+  // Fetch vehicle options (from trip records based on selected month/year, excluding ForkLift)
   const fetchVehicleOptions = async () => {
     try {
       setLoadingVehicles(true);
-      const response = await fetch(`/api/vehicles?status=active&page=1&limit=1000`);
+      
+      // Build query parameters for date filtering
+      const params = new URLSearchParams({
+        page: '1',
+        limit: '1000',
+      });
+
+      // Add date range filter based on year and month
+      if (selectedYear) {
+        const year = parseInt(selectedYear);
+        let startDate: Date;
+        let endDate: Date;
+        
+        if (selectedMonth) {
+          // Specific month and year
+          const month = parseInt(selectedMonth);
+          startDate = new Date(year, month - 1, 1);
+          endDate = new Date(year, month, 0);
+        } else {
+          // Whole year
+          startDate = new Date(year, 0, 1);
+          endDate = new Date(year, 11, 31);
+        }
+        
+        const formatDate = (date: Date) => {
+          const y = date.getFullYear();
+          const m = String(date.getMonth() + 1).padStart(2, '0');
+          const d = String(date.getDate()).padStart(2, '0');
+          return `${y}-${m}-${d}`;
+        };
+        
+        params.append('startDate', formatDate(startDate));
+        params.append('endDate', formatDate(endDate));
+      }
+
+      const response = await fetch(`/api/trip-records?${params}`);
       const result = await response.json();
-      if (response.ok && result?.data) {
-        const options = result.data
-          .filter((v: any) => v.licensePlate)
-          .map((v: any) => ({ id: v.id, licensePlate: v.licensePlate }))
+      
+      if (response.ok && result?.trips) {
+        // Extract unique vehicles from trip records, excluding ForkLift
+        const vehicleMap = new Map();
+        result.trips.forEach((trip: any) => {
+          if (trip.vehicle && trip.vehicle.licensePlate) {
+            const vehicleType = trip.vehicle.vehicleType?.toLowerCase() || '';
+            // Exclude ForkLift
+            if (vehicleType !== 'forklift') {
+              if (!vehicleMap.has(trip.vehicle.id)) {
+                vehicleMap.set(trip.vehicle.id, {
+                  id: trip.vehicle.id,
+                  licensePlate: trip.vehicle.licensePlate,
+                  vehicleType: trip.vehicle.vehicleType
+                });
+              }
+            }
+          }
+        });
+        
+        const options = Array.from(vehicleMap.values())
           .sort((a: any, b: any) => a.licensePlate.localeCompare(b.licensePlate));
+        
         setVehicleOptions(options);
+        
+        // Reset vehicle filter if selected vehicle is not in the new list
+        if (selectedVehicleId && !options.some((v: any) => String(v.id) === selectedVehicleId)) {
+          setSelectedVehicleId('');
+        }
       }
     } catch (error) {
-      // เงียบไว้เพื่อไม่ให้รบกวนการใช้งานหลัก
       console.error('Failed to load vehicle options', error);
     } finally {
       setLoadingVehicles(false);
@@ -509,10 +596,15 @@ export default function TripRecordsPage() {
 
   // Handle filter changes (reset to page 1 and fetch)
   useEffect(() => {
-    console.log('Filter useEffect triggered:', { itemsPerPage, sortBy, sortOrder, selectedVehicleId });
+    console.log('Filter useEffect triggered:', { itemsPerPage, selectedVehicleId, selectedMonth, selectedYear });
     setPage(1);
     fetchTripRecords();
-  }, [itemsPerPage, sortBy, sortOrder, selectedVehicleId]);
+  }, [itemsPerPage, selectedVehicleId, selectedMonth, selectedYear]);
+
+  // Reload vehicle options when month/year changes
+  useEffect(() => {
+    fetchVehicleOptions();
+  }, [selectedMonth, selectedYear]);
 
   // Handle page changes only
   useEffect(() => {
@@ -665,83 +757,131 @@ export default function TripRecordsPage() {
             
             
             <FormControl size="small">
-              <InputLabel>เรียงตาม</InputLabel>
+              <InputLabel>เดือน</InputLabel>
               <Select
-                value={sortBy}
-                label="เรียงตาม"
-                onChange={(e) => setSortBy(e.target.value)}
+                value={selectedMonth}
+                label="เดือน"
+                onChange={(e) => setSelectedMonth(e.target.value)}
               >
-                <MenuItem value="departureDate">วันที่ออกเดินทาง</MenuItem>
-                <MenuItem value="returnDate">วันที่กลับ</MenuItem>
-                <MenuItem value="actualDistance">ระยะทางจริง</MenuItem>
-                <MenuItem value="estimatedDistance">ระยะทางประมาณ</MenuItem>
-                <MenuItem value="totalAllowance">ค่าเบี้ยเลี้ยง</MenuItem>
-                <MenuItem value="days">จำนวนวัน</MenuItem>
-                <MenuItem value="createdAt">วันที่บันทึก</MenuItem>
-                <MenuItem value="updatedAt">วันที่แก้ไข</MenuItem>
+                <MenuItem value="">ทั้งหมด</MenuItem>
+                <MenuItem value="1">มกราคม</MenuItem>
+                <MenuItem value="2">กุมภาพันธ์</MenuItem>
+                <MenuItem value="3">มีนาคม</MenuItem>
+                <MenuItem value="4">เมษายน</MenuItem>
+                <MenuItem value="5">พฤษภาคม</MenuItem>
+                <MenuItem value="6">มิถุนายน</MenuItem>
+                <MenuItem value="7">กรกฎาคม</MenuItem>
+                <MenuItem value="8">สิงหาคม</MenuItem>
+                <MenuItem value="9">กันยายน</MenuItem>
+                <MenuItem value="10">ตุลาคม</MenuItem>
+                <MenuItem value="11">พฤศจิกายน</MenuItem>
+                <MenuItem value="12">ธันวาคม</MenuItem>
               </Select>
             </FormControl>
 
             <FormControl size="small">
-              <InputLabel>ลำดับ</InputLabel>
+              <InputLabel>ปี</InputLabel>
               <Select
-                value={sortOrder}
-                label="ลำดับ"
-                onChange={(e) => setSortOrder(e.target.value as 'asc' | 'desc')}
+                value={selectedYear}
+                label="ปี"
+                onChange={(e) => setSelectedYear(e.target.value)}
               >
-                <MenuItem value="desc">มากไปน้อย</MenuItem>
-                <MenuItem value="asc">น้อยไปมาก</MenuItem>
+                {(() => {
+                  const currentYear = new Date().getFullYear();
+                  const startYear = 2025; // ปีเริ่มต้นของระบบ
+                  const years = [];
+                  // เริ่มจากปีปัจจุบันลงมาถึงปีเริ่มต้น
+                  for (let year = currentYear; year >= startYear; year--) {
+                    years.push(
+                      <MenuItem key={year} value={year.toString()}>
+                        {year + 543}
+                      </MenuItem>
+                    );
+                  }
+                  return years;
+                })()}
               </Select>
             </FormControl>
 
-            <Button
-              variant="outlined"
-              size="small"
-              onClick={() => {
-                setSearchTerm('');
-                setSelectedVehicleId('');
-              }}
-              sx={{ 
-                minWidth: 'auto',
-                px: 2,
-                color: 'text.secondary',
-                borderColor: 'grey.300',
-                '&:hover': { 
-                  color: 'error.main',
-                  borderColor: 'error.main' 
-                }
-              }}
-            >
-              ล้างทั้งหมด
-            </Button>
           </Box>
 
           {/* Active Filters */}
-          { (searchTerm || selectedVehicleId) && (
-            <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 1, alignItems: 'center' }}>
-              <Typography variant="caption" color="text.secondary" sx={{ mr: 1 }}>
-                ตัวกรอง:
-              </Typography>
-              
-              {searchTerm && (
-                <Chip
-                  label={`ค้นหา: "${searchTerm}"`}
-                  onDelete={() => setSearchTerm('')}
-                  color="primary"
-                  variant="outlined"
-                  size="small"
-                />
-              )}
+          { (searchTerm || selectedVehicleId || selectedMonth || selectedYear !== new Date().getFullYear().toString()) && (
+            <Box sx={{ 
+              display: 'flex', 
+              flexWrap: 'wrap', 
+              gap: 1, 
+              alignItems: 'center',
+              justifyContent: 'space-between'
+            }}>
+              <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 1, alignItems: 'center' }}>
+                <Typography variant="caption" color="text.secondary" sx={{ mr: 1 }}>
+                  ตัวกรอง:
+                </Typography>
+                
+                {searchTerm && (
+                  <Chip
+                    label={`ค้นหา: "${searchTerm}"`}
+                    onDelete={() => setSearchTerm('')}
+                    color="primary"
+                    variant="outlined"
+                    size="small"
+                  />
+                )}
 
-              {selectedVehicleId && (
-                <Chip
-                  label={`ทะเบียน: ${vehicleOptions.find(v => String(v.id) === String(selectedVehicleId))?.licensePlate || selectedVehicleId}`}
-                  onDelete={() => setSelectedVehicleId('')}
-                  color="info"
-                  variant="outlined"
-                  size="small"
-                />
-              )}
+                {selectedVehicleId && (
+                  <Chip
+                    label={`ทะเบียน: ${vehicleOptions.find(v => String(v.id) === String(selectedVehicleId))?.licensePlate || selectedVehicleId}`}
+                    onDelete={() => setSelectedVehicleId('')}
+                    color="info"
+                    variant="outlined"
+                    size="small"
+                  />
+                )}
+
+                {selectedMonth && (
+                  <Chip
+                    label={`เดือน: ${['มกราคม','กุมภาพันธ์','มีนาคม','เมษายน','พฤษภาคม','มิถุนายน','กรกฎาคม','สิงหาคม','กันยายน','ตุลาคม','พฤศจิกายน','ธันวาคม'][parseInt(selectedMonth)-1]}`}
+                    onDelete={() => setSelectedMonth('')}
+                    color="secondary"
+                    variant="outlined"
+                    size="small"
+                  />
+                )}
+
+                {selectedYear !== new Date().getFullYear().toString() && (
+                  <Chip
+                    label={`ปี: ${parseInt(selectedYear) + 543}`}
+                    onDelete={() => setSelectedYear(new Date().getFullYear().toString())}
+                    color="warning"
+                    variant="outlined"
+                    size="small"
+                  />
+                )}
+              </Box>
+
+              <Button
+                variant="outlined"
+                size="small"
+                onClick={() => {
+                  setSearchTerm('');
+                  setSelectedVehicleId('');
+                  setSelectedMonth((new Date().getMonth() + 1).toString());
+                  setSelectedYear(new Date().getFullYear().toString());
+                }}
+                sx={{ 
+                  minWidth: 'auto',
+                  px: 2,
+                  color: 'text.secondary',
+                  borderColor: 'grey.300',
+                  '&:hover': { 
+                    color: 'error.main',
+                    borderColor: 'error.main' 
+                  }
+                }}
+              >
+                ล้างทั้งหมด
+              </Button>
             </Box>
           )}
         </Paper>
@@ -978,14 +1118,15 @@ export default function TripRecordsPage() {
                         })()}
                       </TableCell>
 
-                      {/* Driver Expenses: ค่าเบี้ยเลี้ยง + ค่าพัสดุ + ค่าระยะทาง */}
+                      {/* Driver Expenses: ค่าเบี้ยเลี้ยง + ค่าพัสดุ + ค่าระยะทาง + ค่าเที่ยว */}
                       <TableCell align="center">
                         {(() => {
                           const itemsTotal = record.tripItems?.reduce((sum, item) => 
                             sum + (parseFloat(item.totalPrice?.toString() || '0')), 0) || 0;
                           const allowance = parseFloat(record.totalAllowance?.toString() || '0');
                           const distanceCost = record.estimatedDistance * distanceRate;
-                          const driverExpenses = allowance + itemsTotal + distanceCost;
+                          const tripFee = parseFloat(record.tripFee?.toString() || '0');
+                          const driverExpenses = allowance + itemsTotal + distanceCost + tripFee;
                           
                           return (
                             <Typography 
@@ -1309,7 +1450,8 @@ export default function TripRecordsPage() {
                             sum + (parseFloat(item.totalPrice?.toString() || '0')), 0) || 0;
                           const allowance = parseFloat(record.totalAllowance?.toString() || '0');
                           const distanceCost = record.estimatedDistance * distanceRate;
-                          const driverExpenses = allowance + itemsTotal + distanceCost;
+                          const tripFee = parseFloat(record.tripFee?.toString() || '0');
+                          const driverExpenses = allowance + itemsTotal + distanceCost + tripFee;
                           return formatCurrency(driverExpenses);
                         })()}
                       </Typography>
@@ -1457,8 +1599,9 @@ export default function TripRecordsPage() {
                       viewDialog.record.repairCost
                     ].reduce((sum: number, cost) => sum + (parseFloat(cost?.toString() || '0')), 0);
                     
-                    // Driver expenses = allowance + items + distance cost
-                    const driverExpenses = parseFloat(viewDialog.record.totalAllowance.toString()) + itemsTotal + distanceCost;
+                    // Driver expenses = allowance + items + distance cost + trip fee
+                    const tripFee = parseFloat(viewDialog.record.tripFee?.toString() || '0');
+                    const driverExpenses = parseFloat(viewDialog.record.totalAllowance.toString()) + itemsTotal + distanceCost + tripFee;
                     
                     const grandTotal = driverExpenses + companyExpenses;
                     
@@ -1487,6 +1630,12 @@ export default function TripRecordsPage() {
                               <Box sx={{ display: 'flex', justifyContent: 'space-between' }}>
                                 <Typography variant="caption" color="text.secondary">ค่าระยะทาง:</Typography>
                                 <Typography variant="caption" fontWeight="bold">{formatCurrency(distanceCost)}</Typography>
+                              </Box>
+                            )}
+                            {tripFee > 0 && (
+                              <Box sx={{ display: 'flex', justifyContent: 'space-between' }}>
+                                <Typography variant="caption" color="text.secondary">ค่าเที่ยว:</Typography>
+                                <Typography variant="caption" fontWeight="bold">{formatCurrency(tripFee)}</Typography>
                               </Box>
                             )}
                           </Box>
