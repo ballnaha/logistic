@@ -91,6 +91,13 @@ export default function SettingsPage() {
       href: '/settings/trip-fee',
       color: 'warning',
     },
+    {
+      title: 'ตั้งค่าระยะทางขั้นต่ำ',
+      description: 'กำหนดระยะทางที่ไม่คิดค่าระยะทาง (เช่น 1,500 กม.แรกฟรี)',
+      icon: <RouteIcon sx={{ fontSize: 40 }} />,
+      href: '/settings/free-distance-threshold',
+      color: 'info',
+    },
 
   ];
 

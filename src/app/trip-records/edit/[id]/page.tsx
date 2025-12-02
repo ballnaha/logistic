@@ -1061,6 +1061,16 @@ export default function EditTripRecordPage({ params }: { params: Promise<{ id: s
                   />
                 </Box>
 
+                {/* Info Alert about Distance Cost */}
+                <Alert severity="info" sx={{ mb: 2, borderRadius: 2 }}>
+                  <Typography variant="body2" sx={{ fontWeight: 600, mb: 0.5 }}>
+                    💡 หมายเหตุสำคัญ
+                  </Typography>
+                  <Typography variant="body2">
+                    ค่าระยะทางจะคำนวณแบบสะสมรายเดือนสำหรับแต่ละคนขับรถ (0-1,500 กม. ฟรี, เกิน 1,500 กม. คิดค่าระยะทาง) สามารถดูรายละเอียดการคำนวณได้ที่หน้า "รายงานคนขับรถ"
+                  </Typography>
+                </Alert>
+
                 <Divider sx={{ my: 2 }} />
 
                 {/* Vehicle Selection */}
@@ -2869,6 +2879,10 @@ export default function EditTripRecordPage({ params }: { params: Promise<{ id: s
                                 <Typography variant="caption" fontWeight="bold">{formatCurrency(tripFeeRate)}</Typography>
                               </Box>
                             )}
+                            <Box sx={{ display: 'flex', justifyContent: 'space-between' }}>
+                                <Typography variant="caption">ค่าระยะทาง:</Typography>
+                                <Typography variant="caption" fontWeight="400">รอคำนวณสิ้นเดือน</Typography>
+                              </Box>
                           </Box>
                         </Paper>
                       )}

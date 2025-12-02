@@ -32,27 +32,44 @@ export default function HelpPage() {
   const [distanceRate, setDistanceRate] = useState<number | null>(null);
   const [loading, setLoading] = useState(true);
   const [tripFee, setTripFee] = useState<number | null>(null);
+  const [freeDistanceThreshold, setFreeDistanceThreshold] = useState<number | null>(null);
 
   useEffect(() => {
     const fetchRates = async () => {
       try {
-        const [allowanceRes, distanceRes, tripFeeRes] = await Promise.all([
+        const [allowanceRes, distanceRes, tripFeeRes, freeDistanceRes] = await Promise.all([
           fetch('/api/settings/allowance'),
           fetch('/api/settings/distance-rate'),
           fetch('/api/settings/trip-fee'),
+          fetch('/api/settings/free-distance-threshold'),
         ]);
 
-        const allowanceData = await allowanceRes.json();
-        const distanceData = await distanceRes.json();
-        const tripFeeData = await tripFeeRes.json();
-        if (tripFeeData.success) {
+        // Parse only if response is ok and content-type is JSON
+        const parseJsonSafely = async (response: Response) => {
+          if (!response.ok) return null;
+          const contentType = response.headers.get('content-type');
+          if (contentType && contentType.includes('application/json')) {
+            return await response.json();
+          }
+          return null;
+        };
+
+        const allowanceData = await parseJsonSafely(allowanceRes);
+        const distanceData = await parseJsonSafely(distanceRes);
+        const tripFeeData = await parseJsonSafely(tripFeeRes);
+        const freeDistanceData = await parseJsonSafely(freeDistanceRes);
+
+        if (tripFeeData?.success) {
           setTripFee(tripFeeData.data.tripFee);
         }
-        if (allowanceData.success) {
+        if (allowanceData?.success) {
           setAllowanceRate(allowanceData.data.allowanceRate);
         }
-        if (distanceData.success) {
+        if (distanceData?.success) {
           setDistanceRate(distanceData.data.distanceRate);
+        }
+        if (freeDistanceData?.success) {
+          setFreeDistanceThreshold(freeDistanceData.data.freeDistanceThreshold);
         }
       } catch (error) {
         console.error('Error fetching rates:', error);
@@ -97,7 +114,7 @@ export default function HelpPage() {
             <AccordionDetails>
               <Stack spacing={2}>
                 <Typography variant="body2" color="text.secondary">
-                  เงินที่บริษัทต้องจ่ายให้กับคนขับรถในแต่ละเที่ยว คำนวณจาก:
+                  เงินที่บริษัทต้องจ่ายให้กับคนขับรถคิดเป็นรายเดือน คำนวณจาก:
                 </Typography>
 
                 <Box sx={{ p: 2, bgcolor: 'primary.50', borderRadius: 1, border: '1px solid', borderColor: 'primary.main' }}>
@@ -137,7 +154,8 @@ export default function HelpPage() {
                         ค่าระยะทาง
                       </Typography>
                       <Typography variant="body2" color="text.secondary">
-                        ค่าใช้จ่ายตามระยะทางไปหาลูกค้า โดยคิดจากระยะทางจากระบบ x{' '}
+                        ค่าใช้จ่ายตามระยะทางไปหาลูกค้า โดย 0-{freeDistanceThreshold ? freeDistanceThreshold.toLocaleString() : '1,500'} กม.แรก ไม่คิดค่าระยะทาง และ ตั้งแต่{' '}
+                        {freeDistanceThreshold ? (freeDistanceThreshold + 1).toLocaleString() : '1,501'} กม.ขึ้นไป คิดจากระยะทางจากระบบ x{' '}
                         <strong>{distanceRate ? distanceRate.toLocaleString() : '1.2'} บาท/กม.</strong>
                       </Typography>
                     </Box>

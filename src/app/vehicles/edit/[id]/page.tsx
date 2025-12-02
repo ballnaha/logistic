@@ -1,5 +1,5 @@
 'use client';
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useRef, useMemo } from 'react';
 import { useRouter, useParams } from 'next/navigation';
 import { useSession } from 'next-auth/react';
 import { useSnackbar } from '../../../../contexts/SnackbarContext';
@@ -101,6 +101,58 @@ const getDriverImageUrl = (driverImage: string | null | undefined): string => {
   return imagePath;
 };
 
+// Optimized driver menu item rendering function (without React.memo wrapper to avoid Select issues)
+const renderDriverMenuItem = (
+  driver: { 
+    id: number; 
+    driverName: string; 
+    driverLicense: string; 
+    imageUrl: string; 
+    initials: string; 
+  },
+  isDisabled: boolean,
+  bgColor: string = 'primary.main'
+) => {
+  return (
+    <MenuItem 
+      key={driver.id}
+      value={driver.id.toString()}
+      disabled={isDisabled}
+    >
+      <Box sx={{ display: 'flex', alignItems: 'center', gap: 2 }}>
+        <Avatar 
+          src={driver.imageUrl || undefined}
+          imgProps={{
+            loading: 'lazy',
+            onError: (e: React.SyntheticEvent<HTMLImageElement>) => {
+              // Hide broken image, show initials instead
+              e.currentTarget.style.display = 'none';
+            }
+          }}
+          sx={{ 
+            width: 32, 
+            height: 32,
+            bgcolor: driver.imageUrl ? 'transparent' : bgColor,
+            color: 'white',
+            fontSize: '0.875rem',
+            fontWeight: 'bold'
+          }}
+        >
+          {driver.initials}
+        </Avatar>
+        <Box sx={{ minWidth: 0, flex: 1 }}>
+          <Typography variant="body2" sx={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+            {driver.driverName}
+          </Typography>
+          <Typography variant="caption" color="text.secondary">
+            ({driver.driverLicense})
+          </Typography>
+        </Box>
+      </Box>
+    </MenuItem>
+  );
+};
+
 interface Driver {
   id: number;
   driverName: string;
@@ -193,6 +245,15 @@ export default function EditCarPage() {
   useEffect(() => {
     fetchDrivers();
   }, []);
+
+  // Memoize processed drivers to prevent re-render lag
+  const processedDrivers = useMemo(() => {
+    return drivers.map(driver => ({
+      ...driver,
+      imageUrl: getDriverImageUrl(driver.driverImage),
+      initials: getDriverInitials(driver.driverName)
+    }));
+  }, [drivers]);
 
   // โหลดข้อมูลรถ
   useEffect(() => {
@@ -704,39 +765,27 @@ export default function EditCarPage() {
                   onChange={handleChange}
                   disabled={loadingDrivers}
                   required
+                  MenuProps={{
+                    PaperProps: {
+                      style: {
+                        maxHeight: 400,
+                      },
+                    },
+                    // Optimize menu rendering
+                    disablePortal: false,
+                    keepMounted: false,
+                  }}
                 >
                   <MenuItem value="">
                     <em>เลือกคนขับหลัก</em>
                   </MenuItem>
-                  {drivers.map((driver) => (
-                    <MenuItem 
-                      key={driver.id} 
-                      value={driver.id.toString()}
-                      disabled={driver.id.toString() === formData.backupDriverId}
-                    >
-                      <Box sx={{ display: 'flex', alignItems: 'center', gap: 2 }}>
-                        <Avatar 
-                          src={getDriverImageUrl(driver.driverImage)} 
-                          sx={{ 
-                            width: 32, 
-                            height: 32,
-                            bgcolor: driver.driverImage ? 'transparent' : 'primary.main',
-                            color: 'white',
-                            fontSize: '0.875rem',
-                            fontWeight: 'bold'
-                          }}
-                        >
-                          {getDriverInitials(driver.driverName)}
-                        </Avatar>
-                        <Box>
-                          <Typography variant="body2">{driver.driverName}</Typography>
-                          <Typography variant="caption" color="text.secondary">
-                            ใบขับขี่: {driver.driverLicense}
-                          </Typography>
-                        </Box>
-                      </Box>
-                    </MenuItem>
-                  ))}
+                  {processedDrivers.map((driver) => 
+                    renderDriverMenuItem(
+                      driver,
+                      driver.id.toString() === formData.backupDriverId,
+                      'primary.main'
+                    )
+                  )}
                 </Select>
                 {!formData.mainDriverId && (
                   <FormHelperText>กรุณาเลือกคนขับหลัก</FormHelperText>
@@ -752,39 +801,27 @@ export default function EditCarPage() {
                   label="คนขับรอง"
                   onChange={handleChange}
                   disabled={loadingDrivers}
+                  MenuProps={{
+                    PaperProps: {
+                      style: {
+                        maxHeight: 400,
+                      },
+                    },
+                    // Optimize menu rendering
+                    disablePortal: false,
+                    keepMounted: false,
+                  }}
                 >
                   <MenuItem value="">
                     <em>ไม่ระบุคนขับรอง</em>
                   </MenuItem>
-                  {drivers.map((driver) => (
-                    <MenuItem 
-                      key={driver.id} 
-                      value={driver.id.toString()}
-                      disabled={driver.id.toString() === formData.mainDriverId}
-                    >
-                      <Box sx={{ display: 'flex', alignItems: 'center', gap: 2 }}>
-                        <Avatar 
-                          src={getDriverImageUrl(driver.driverImage)} 
-                          sx={{ 
-                            width: 32, 
-                            height: 32,
-                            bgcolor: driver.driverImage ? 'transparent' : 'secondary.main',
-                            color: 'white',
-                            fontSize: '0.875rem',
-                            fontWeight: 'bold'
-                          }}
-                        >
-                          {getDriverInitials(driver.driverName)}
-                        </Avatar>
-                        <Box>
-                          <Typography variant="body2">{driver.driverName}</Typography>
-                          <Typography variant="caption" color="text.secondary">
-                            ใบขับขี่: {driver.driverLicense}
-                          </Typography>
-                        </Box>
-                      </Box>
-                    </MenuItem>
-                  ))}
+                  {processedDrivers.map((driver) => 
+                    renderDriverMenuItem(
+                      driver,
+                      driver.id.toString() === formData.mainDriverId,
+                      'secondary.main'
+                    )
+                  )}
                 </Select>
               </FormControl>
               
@@ -798,21 +835,21 @@ export default function EditCarPage() {
                   {formData.mainDriverId && (
                     <Box sx={{ mb: 2 }}>
                       {(() => {
-                        const selectedDriver = drivers.find(d => d.id.toString() === formData.mainDriverId);
+                        const selectedDriver = processedDrivers.find(d => d.id.toString() === formData.mainDriverId);
                         return selectedDriver ? (
                           <Box sx={{ display: 'flex', alignItems: 'center', gap: 2 }}>
                             <Avatar 
-                              src={getDriverImageUrl(selectedDriver.driverImage)} 
+                              src={selectedDriver.imageUrl} 
                               sx={{ 
                                 width: 48, 
                                 height: 48,
-                                bgcolor: selectedDriver.driverImage ? 'transparent' : 'primary.main',
+                                bgcolor: selectedDriver.imageUrl ? 'transparent' : 'primary.main',
                                 color: 'white',
                                 fontSize: '1rem',
                                 fontWeight: 'bold'
                               }}
                             >
-                              {getDriverInitials(selectedDriver.driverName)}
+                              {selectedDriver.initials}
                             </Avatar>
                             <Box>
                               <Typography variant="body2" fontWeight="bold">
@@ -832,21 +869,21 @@ export default function EditCarPage() {
                   {formData.backupDriverId && (
                     <Box>
                       {(() => {
-                        const selectedDriver = drivers.find(d => d.id.toString() === formData.backupDriverId);
+                        const selectedDriver = processedDrivers.find(d => d.id.toString() === formData.backupDriverId);
                         return selectedDriver ? (
                           <Box sx={{ display: 'flex', alignItems: 'center', gap: 2 }}>
                             <Avatar 
-                              src={getDriverImageUrl(selectedDriver.driverImage)} 
+                              src={selectedDriver.imageUrl} 
                               sx={{ 
                                 width: 48, 
                                 height: 48,
-                                bgcolor: selectedDriver.driverImage ? 'transparent' : 'secondary.main',
+                                bgcolor: selectedDriver.imageUrl ? 'transparent' : 'secondary.main',
                                 color: 'white',
                                 fontSize: '1rem',
                                 fontWeight: 'bold'
                               }}
                             >
-                              {getDriverInitials(selectedDriver.driverName)}
+                              {selectedDriver.initials}
                             </Avatar>
                             <Box>
                               <Typography variant="body2" fontWeight="bold">

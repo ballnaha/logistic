@@ -11,8 +11,51 @@ export async function GET(request: NextRequest) {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
     }
 
-    // ดึงยี่ห้อ, ประเภทรถ และทะเบียนรถแบบ parallel และ optimized
-    const [brands, vehicleTypes, licensePlates] = await Promise.all([
+    // รับ query parameters สำหรับ filter
+    const { searchParams } = new URL(request.url);
+    const month = searchParams.get('month');
+    const year = searchParams.get('year');
+
+    // สร้าง where condition สำหรับ fuel records filter
+    const fuelRecordWhere: any = {};
+    
+    if (month || year) {
+      const dateFilter: any = {};
+      
+      if (year) {
+        const yearNum = parseInt(year);
+        if (month) {
+          // Filter by specific month and year
+          const monthNum = parseInt(month);
+          const startDate = new Date(yearNum, monthNum - 1, 1);
+          const endDate = new Date(yearNum, monthNum, 0, 23, 59, 59, 999);
+          
+          dateFilter.gte = startDate;
+          dateFilter.lte = endDate;
+        } else {
+          // Filter by year only
+          const startDate = new Date(yearNum, 0, 1);
+          const endDate = new Date(yearNum, 11, 31, 23, 59, 59, 999);
+          
+          dateFilter.gte = startDate;
+          dateFilter.lte = endDate;
+        }
+      } else if (month) {
+        // Filter by month only (current year)
+        const currentYear = new Date().getFullYear();
+        const monthNum = parseInt(month);
+        const startDate = new Date(currentYear, monthNum - 1, 1);
+        const endDate = new Date(currentYear, monthNum, 0, 23, 59, 59, 999);
+        
+        dateFilter.gte = startDate;
+        dateFilter.lte = endDate;
+      }
+      
+      fuelRecordWhere.fuelDate = dateFilter;
+    }
+
+    // ดึงยี่ห้อ, ประเภทรถ, ทะเบียนรถ และข้อมูลรถทั้งหมดแบบ parallel และ optimized
+    const [brands, vehicleTypes, licensePlates, vehicles] = await Promise.all([
       // ดึงยี่ห้อรถ - ใช้ groupBy แทน distinct สำหรับประสิทธิภาพที่ดีกว่า
       prisma.vehicle.groupBy({
         by: ['brand'],
@@ -54,7 +97,50 @@ export async function GET(request: NextRequest) {
         orderBy: {
           licensePlate: 'asc'
         }
-      })
+      }),
+      // ดึงข้อมูลรถที่มีการเติมน้ำมันในช่วงเวลาที่เลือก (ถ้ามี filter)
+      (month || year) 
+        ? prisma.vehicle.findMany({
+            where: {
+              isActive: true,
+              licensePlate: {
+                not: null
+              },
+              NOT: {
+                licensePlate: ''
+              },
+              fuelRecords: {
+                some: fuelRecordWhere
+              }
+            },
+            select: {
+              id: true,
+              licensePlate: true,
+              vehicleType: true
+            },
+            orderBy: {
+              licensePlate: 'asc'
+            }
+          })
+        : prisma.vehicle.findMany({
+            where: {
+              isActive: true,
+              licensePlate: {
+                not: null
+              },
+              NOT: {
+                licensePlate: ''
+              }
+            },
+            select: {
+              id: true,
+              licensePlate: true,
+              vehicleType: true
+            },
+            orderBy: {
+              licensePlate: 'asc'
+            }
+          })
     ]);
 
     return NextResponse.json({
@@ -63,7 +149,8 @@ export async function GET(request: NextRequest) {
         brands: brands.map(item => item.brand).filter(Boolean),
         vehicleTypes: vehicleTypes.map(item => item.vehicleType).filter(Boolean),
         licensePlates: licensePlates.map(item => item.licensePlate).filter(Boolean)
-      }
+      },
+      vehicles: vehicles // เพิ่มข้อมูลรถทั้งหมดสำหรับ filter
     });
 
   } catch (error) {

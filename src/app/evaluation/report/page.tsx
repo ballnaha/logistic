@@ -503,7 +503,7 @@ export default function EvaluationReportPage() {
               </FormControl>
             </Box>
 
-            <Box sx={{ minWidth: 150 }}>
+            <Box sx={{ minWidth: 200 }}>
               <FormControl fullWidth size="small">
                 <InputLabel>ทะเบียนรถ</InputLabel>
                 <Select

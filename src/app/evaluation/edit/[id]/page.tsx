@@ -39,15 +39,14 @@ import { useSession } from 'next-auth/react';
 import Layout from '../../../components/Layout';
 import { useSnackbar } from '../../../../contexts/SnackbarContext';
 
-interface VendorOption {
-  code: string;
-  name: string;
-  fullName: string;
-  address: string;
-  group: string;
-  purchaseOrg: string;
-  email: string;
-  telephone: string;
+interface SubcontractorOption {
+  id: number;
+  subcontractorCode: string;
+  subcontractorName: string;
+  contactPerson?: string | null;
+  phone?: string | null;
+  address?: string | null;
+  isActive: boolean;
 }
 
 interface FormData {
@@ -105,14 +104,10 @@ export default function EditEvaluationPage() {
   const [errors, setErrors] = useState<Record<string, string>>({});
   const [licensePlateFormatValid, setLicensePlateFormatValid] = useState(true);
   const [evaluation, setEvaluation] = useState<Evaluation | null>(null);
-  const [vendorOptions, setVendorOptions] = useState<VendorOption[]>([]);
-  const [vendorLoading, setVendorLoading] = useState(false);
-  const [selectedVendor, setSelectedVendor] = useState<VendorOption | null>(null);
-  const [vendorPage, setVendorPage] = useState(1);
-  const [vendorHasMore, setVendorHasMore] = useState(true);
-  const [vendorSearch, setVendorSearch] = useState('');
-  const [searchResults, setSearchResults] = useState<VendorOption[]>([]);
-  const [isSearching, setIsSearching] = useState(false);
+  const [subcontractorOptions, setSubcontractorOptions] = useState<SubcontractorOption[]>([]);
+  const [subcontractorLoading, setSubcontractorLoading] = useState(false);
+  const [selectedSubcontractor, setSelectedSubcontractor] = useState<SubcontractorOption | null>(null);
+  const [subcontractorSearch, setSubcontractorSearch] = useState('');
   const [damageScore, setDamageScore] = useState<number | null>(null);
   const [vehicleHistory, setVehicleHistory] = useState<{
     damageCount: number;
@@ -124,14 +119,16 @@ export default function EditEvaluationPage() {
     isLoadingHistory: false
   });
 
-  // Fetch vendor options with pagination
-  const fetchVendors = async (page = 1, search = '', append = false) => {
-    if (!vendorHasMore && page > 1) return;
-    
-    setVendorLoading(true);
+  // Fetch subcontractor options
+  const fetchSubcontractors = async (search: string = '') => {
+    setSubcontractorLoading(true);
     
     try {
-      const response = await fetch(`/api/vendors/paginated?page=${page}&limit=100&search=${encodeURIComponent(search)}`, {
+      const params = new URLSearchParams({
+        search: search,
+      });
+      
+      const response = await fetch(`/api/subcontractors?${params}`, {
         headers: {
           'Cache-Control': 'no-cache',
         }
@@ -142,72 +139,35 @@ export default function EditEvaluationPage() {
       }
       
       const result = await response.json();
-      
-      if (append) {
-        setVendorOptions(prev => [...prev, ...result.data]);
-      } else {
-        setVendorOptions(result.data);
-      }
-      
-      setVendorHasMore(result.pagination.hasMore);
-      setVendorPage(page);
+      setSubcontractorOptions(result.data || []);
     } catch (error: any) {
-      showSnackbar('ไม่สามารถดึงข้อมูลผู้รับจ้างช่วงได้ สามารถพิมพ์ชื่อได้', 'info');
-      console.error('Error fetching vendors:', error);
+      showSnackbar('ไม่สามารถดึงข้อมูลผู้รับจ้างช่วงได้', 'error');
+      console.error('Error fetching subcontractors:', error);
     } finally {
-      setVendorLoading(false);
+      setSubcontractorLoading(false);
     }
   };
 
-  // Load more vendors when scrolling
-  const loadMoreVendors = () => {
-    if (vendorHasMore && !vendorLoading) {
-      fetchVendors(vendorPage + 1, vendorSearch, true);
-    }
-  };
-
-  // Search vendors real-time
-  const searchVendors = async (searchTerm: string) => {
-    setVendorSearch(searchTerm);
-    
-    if (!searchTerm.trim()) {
-      setSearchResults([]);
-      setIsSearching(false);
-      return;
-    }
-
-    setIsSearching(true);
-    try {
-      const response = await fetch(`/api/vendors/search?q=${encodeURIComponent(searchTerm)}&limit=20`);
-      if (response.ok) {
-        const result = await response.json();
-        setSearchResults(result.data);
-      }
-    } catch (error) {
-      console.error('Error searching vendors:', error);
-    } finally {
-      setIsSearching(false);
-    }
-  };
-
-  // Debounced search
+  // Debounced search for subcontractors
   const [searchTimeout, setSearchTimeout] = useState<NodeJS.Timeout | null>(null);
   
-  const debouncedSearch = (searchTerm: string) => {
+  const debouncedSearchSubcontractors = (searchTerm: string) => {
+    setSubcontractorSearch(searchTerm);
+    
     if (searchTimeout) {
       clearTimeout(searchTimeout);
     }
     
     const timeout = setTimeout(() => {
-      searchVendors(searchTerm);
-    }, 300); // รอ 300ms หลังจากพิมพ์เสร็จ
+      fetchSubcontractors(searchTerm);
+    }, 300);
     
     setSearchTimeout(timeout);
   };
 
-  // Initial vendor fetch
+  // Initial subcontractor fetch
   useEffect(() => {
-    fetchVendors(1, '');
+    fetchSubcontractors();
   }, []);
 
   // Cleanup timeout on unmount
@@ -295,39 +255,13 @@ export default function EditEvaluationPage() {
     }
   };
 
-  // Clear vendor search and reload
-  const clearVendorSearch = () => {
-    setVendorSearch('');
-    setSearchResults([]);
-    setIsSearching(false);
-    // Reload vendors if needed
-    if (vendorOptions.length === 0) {
-      fetchVendors();
-    }
-  };
-
-  // Handle vendor change
-  const handleVendorChange = (event: any, newValue: VendorOption | string | null) => {
-    if (typeof newValue === 'string') {
-      // User typed manually
-      setSelectedVendor(null);
-      setFormData(prev => ({
-        ...prev,
-        contractorName: newValue
-      }));
-    } else {
-      // User selected from dropdown
-      setSelectedVendor(newValue);
-      setFormData(prev => ({
-        ...prev,
-        contractorName: newValue ? newValue.name : ''
-      }));
-      
-      // เมื่อ clear vendor (newValue = null) ให้ล้างการค้นหาและโหลดใหม่
-      if (!newValue) {
-        clearVendorSearch();
-      }
-    }
+  // Handle subcontractor selection change
+  const handleSubcontractorChange = (newValue: SubcontractorOption | null) => {
+    setSelectedSubcontractor(newValue);
+    setFormData(prev => ({
+      ...prev,
+      contractorName: newValue ? newValue.subcontractorName : ''
+    }));
     
     // Clear error
     if (errors.contractorName) {
@@ -417,16 +351,16 @@ export default function EditEvaluationPage() {
     return () => clearTimeout(timeoutId);
   }, [formData.vehiclePlate]);
 
-  // Load vendor data after evaluation is loaded (lazy loading)
+  // Load subcontractor data after evaluation is loaded (lazy loading)
   useEffect(() => {
-    if (evaluation && vendorOptions.length > 0) {
-      // Set selected vendor after both evaluation and vendors are loaded
+    if (evaluation && subcontractorOptions.length > 0) {
+      // Set selected subcontractor after both evaluation and subcontractors are loaded
       if (evaluation.contractorName) {
-        const vendor = vendorOptions.find(v => v.name === evaluation.contractorName);
-        setSelectedVendor(vendor || null);
+        const subcontractor = subcontractorOptions.find(v => v.subcontractorName === evaluation.contractorName);
+        setSelectedSubcontractor(subcontractor || null);
       }
     }
-  }, [evaluation, vendorOptions]);
+  }, [evaluation, subcontractorOptions]);
 
   // Auto-calculate damage score when relevant fields change
   useEffect(() => {
@@ -741,28 +675,18 @@ export default function EditEvaluationPage() {
                     gridTemplateColumns: { xs: '1fr', md: '1fr 1fr' }, 
                     gap: 2 
                   }}>
-                    {/* Vendor Dropdown */}
+                    {/* Subcontractor Dropdown */}
                     <Autocomplete
                       fullWidth
-                      options={vendorSearch.trim() ? searchResults : vendorOptions}
-                      getOptionLabel={(option) => typeof option === 'string' ? option : option.fullName}
-                      value={selectedVendor}
-                      onChange={handleVendorChange}
-                      loading={vendorLoading || isSearching}
-                      freeSolo
-                      filterOptions={(options) => options} // ปิด default filtering เพราะเราทำเอง
+                      options={subcontractorOptions}
+                      getOptionLabel={(option) => `${option.subcontractorCode} - ${option.subcontractorName}`}
+                      value={selectedSubcontractor}
+                      onChange={(_, newValue) => handleSubcontractorChange(newValue)}
+                      loading={subcontractorLoading}
                       onInputChange={(event, newInputValue) => {
                         if (event && event.type === 'change') {
-                          debouncedSearch(newInputValue);
+                          debouncedSearchSubcontractors(newInputValue);
                         }
-                      }}
-                      ListboxProps={vendorSearch.trim() ? {} : {
-                        onScroll: (event: React.SyntheticEvent) => {
-                          const listboxNode = event.currentTarget;
-                          if (listboxNode.scrollTop + listboxNode.clientHeight === listboxNode.scrollHeight) {
-                            loadMoreVendors();
-                          }
-                        },
                       }}
                       renderInput={(params) => (
                         <TextField
@@ -771,7 +695,6 @@ export default function EditEvaluationPage() {
                           placeholder="ค้นหารหัสหรือชื่อผู้รับจ้างช่วง..."
                           size="small"
                           error={!!errors.contractorName}
-
                           required
                           InputProps={{
                             ...params.InputProps,
@@ -782,8 +705,7 @@ export default function EditEvaluationPage() {
                             ),
                             endAdornment: (
                               <>
-
-                                {(vendorLoading || isSearching) ? <CircularProgress color="inherit" size={20} /> : null}
+                                {subcontractorLoading ? <CircularProgress color="inherit" size={20} /> : null}
                                 {params.InputProps.endAdornment}
                               </>
                             ),
@@ -796,37 +718,33 @@ export default function EditEvaluationPage() {
                           <Box component="li" key={key} {...otherProps}>
                             <Box>
                               <Typography variant="body2" sx={{ fontWeight: 600 }}>
-                                {option.code}
+                                {option.subcontractorCode}
                               </Typography>
                               <Typography variant="body2" color="text.secondary">
-                                {option.name}
+                                {option.subcontractorName}
                               </Typography>
-                              {option.address && (
+                              {option.contactPerson && (
                                 <Typography variant="caption" color="text.secondary" sx={{ display: 'block' }}>
-                                  {option.address}
+                                  ผู้ติดต่อ: {option.contactPerson}
                                 </Typography>
                               )}
-                              {vendorSearch.trim() && (
-                                <Typography variant="caption" color="primary">
-                                  ผลการค้นหา
+                              {option.phone && (
+                                <Typography variant="caption" color="text.secondary" sx={{ display: 'block' }}>
+                                  โทร: {option.phone}
                                 </Typography>
                               )}
                             </Box>
                           </Box>
                         );
                       }}
-                      noOptionsText={
-                        vendorSearch.trim() ? 
-                          (isSearching ? 'กำลังค้นหา...' : 'ไม่พบผลการค้นหา') : 
-                          'ไม่มีข้อมูล'
-                      }
+                      noOptionsText={subcontractorLoading ? 'กำลังโหลด...' : 'ไม่พบข้อมูล'}
                     />
 
                     {/* ชื่อผู้รับจ้างช่วงที่เลือก (แสดงผลเสมอ) */}
                     <TextField
                       fullWidth
                       label="ชื่อผู้รับจ้างช่วงที่เลือก"
-                      value={selectedVendor ? selectedVendor.fullName : ''}
+                      value={selectedSubcontractor ? selectedSubcontractor.subcontractorName : ''}
                       size="small"
                       disabled
                       placeholder="ยังไม่ได้เลือกผู้รับจ้างช่วง"

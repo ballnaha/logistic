@@ -706,7 +706,7 @@ export default function TripRecordsPage() {
             alignItems: 'center'
           }}>
             <TextField
-              placeholder="ค้นหาทะเบียนรถ, ลูกค้า, หมายเหตุ..."
+              placeholder="ค้นหาทะเบียนรถ, ลูกค้า, เลขที่เอกสาร, หมายเหตุ..."
               value={searchTerm}
               onChange={(e) => setSearchTerm(e.target.value)}
               size="small"
@@ -806,7 +806,7 @@ export default function TripRecordsPage() {
           </Box>
 
           {/* Active Filters */}
-          { (searchTerm || selectedVehicleId || selectedMonth || selectedYear !== new Date().getFullYear().toString()) && (
+          { (searchTerm || selectedVehicleId || selectedMonth) && (
             <Box sx={{ 
               display: 'flex', 
               flexWrap: 'wrap', 
@@ -833,7 +833,7 @@ export default function TripRecordsPage() {
                   <Chip
                     label={`ทะเบียน: ${vehicleOptions.find(v => String(v.id) === String(selectedVehicleId))?.licensePlate || selectedVehicleId}`}
                     onDelete={() => setSelectedVehicleId('')}
-                    color="info"
+                    color="primary"
                     variant="outlined"
                     size="small"
                   />
@@ -843,17 +843,17 @@ export default function TripRecordsPage() {
                   <Chip
                     label={`เดือน: ${['มกราคม','กุมภาพันธ์','มีนาคม','เมษายน','พฤษภาคม','มิถุนายน','กรกฎาคม','สิงหาคม','กันยายน','ตุลาคม','พฤศจิกายน','ธันวาคม'][parseInt(selectedMonth)-1]}`}
                     onDelete={() => setSelectedMonth('')}
-                    color="secondary"
+                    color="primary"
                     variant="outlined"
                     size="small"
                   />
                 )}
 
-                {selectedYear !== new Date().getFullYear().toString() && (
+                {selectedYear && (
                   <Chip
                     label={`ปี: ${parseInt(selectedYear) + 543}`}
-                    onDelete={() => setSelectedYear(new Date().getFullYear().toString())}
-                    color="warning"
+                    onDelete={() => setSelectedYear('')}
+                    color="primary"
                     variant="outlined"
                     size="small"
                   />
@@ -866,8 +866,8 @@ export default function TripRecordsPage() {
                 onClick={() => {
                   setSearchTerm('');
                   setSelectedVehicleId('');
-                  setSelectedMonth((new Date().getMonth() + 1).toString());
-                  setSelectedYear(new Date().getFullYear().toString());
+                  setSelectedMonth('');
+                  setSelectedYear('');
                 }}
                 sx={{ 
                   minWidth: 'auto',
@@ -919,14 +919,13 @@ export default function TripRecordsPage() {
                   <TableCell align="center">ระยะทาง</TableCell>
                   <TableCell align="center">จำนวนวัน</TableCell>
                   <TableCell align="center">ค่าใช้จ่ายบริษัท</TableCell>
-                  <TableCell align="center">ค่าใช้จ่ายพนักงานขับรถ</TableCell>
                   <TableCell align="center">จัดการ</TableCell>
                 </TableRow>
               </TableHead>
               <TableBody>
                 {tripRecords.length === 0 ? (
                   <TableRow>
-                    <TableCell colSpan={9} align="center" sx={{ py: 4 }}>
+                    <TableCell colSpan={8} align="center" sx={{ py: 4 }}>
                       <Box sx={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 1 }}>
                         <TripIcon sx={{ fontSize: 48, color: 'grey.400' }} />
                         <Typography variant="body1" color="text.secondary">
@@ -1113,34 +1112,6 @@ export default function TripRecordsPage() {
                               }}
                             >
                               {formatCurrency(companyExpenses)}
-                            </Typography>
-                          );
-                        })()}
-                      </TableCell>
-
-                      {/* Driver Expenses: ค่าเบี้ยเลี้ยง + ค่าพัสดุ + ค่าระยะทาง + ค่าเที่ยว */}
-                      <TableCell align="center">
-                        {(() => {
-                          const itemsTotal = record.tripItems?.reduce((sum, item) => 
-                            sum + (parseFloat(item.totalPrice?.toString() || '0')), 0) || 0;
-                          const allowance = parseFloat(record.totalAllowance?.toString() || '0');
-                          const distanceCost = record.estimatedDistance * distanceRate;
-                          const tripFee = parseFloat(record.tripFee?.toString() || '0');
-                          const driverExpenses = allowance + itemsTotal + distanceCost + tripFee;
-                          
-                          return (
-                            <Typography 
-                              variant="body2" 
-                              fontWeight={500}
-                              sx={{ 
-                                color: 'success.main',
-                                bgcolor: driverExpenses > 0 ? 'success.50' : 'transparent',
-                                px: 1,
-                                py: 0.5,
-                                borderRadius: 1
-                              }}
-                            >
-                              {formatCurrency(driverExpenses)}
                             </Typography>
                           );
                         })()}
@@ -1425,7 +1396,7 @@ export default function TripRecordsPage() {
 
                   {/* Expenses Summary */}
                   <Box sx={{ mt: 'auto' }}>
-                    <Box sx={{ display: 'flex', justifyContent: 'space-between', mb: 1, p: 1.5, bgcolor: 'warning.50', borderRadius: 1 }}>
+                    <Box sx={{ display: 'flex', justifyContent: 'space-between', p: 1.5, bgcolor: 'warning.50', borderRadius: 1 }}>
                       <Typography variant="body2" sx={{ fontWeight: 600, color: 'warning.main', fontSize: '0.85rem' }}>
                         ค่าใช้จ่ายบริษัท
                       </Typography>
@@ -1437,22 +1408,6 @@ export default function TripRecordsPage() {
                             parseFloat(record.fuelCost?.toString() || '0') + 
                             parseFloat(record.distanceCheckFee?.toString() || '0');
                           return formatCurrency(companyExpenses);
-                        })()}
-                      </Typography>
-                    </Box>
-                    <Box sx={{ display: 'flex', justifyContent: 'space-between', p: 1.5, bgcolor: 'success.50', borderRadius: 1 }}>
-                      <Typography variant="body2" sx={{ fontWeight: 600, color: 'success.main', fontSize: '0.85rem' }}>
-                        ค่าใช้จ่ายพนักงานขับรถ
-                      </Typography>
-                      <Typography variant="body2" sx={{ fontWeight: 700, color: 'success.main', fontSize: '0.9rem' }}>
-                        {(() => {
-                          const itemsTotal = record.tripItems?.reduce((sum, item) => 
-                            sum + (parseFloat(item.totalPrice?.toString() || '0')), 0) || 0;
-                          const allowance = parseFloat(record.totalAllowance?.toString() || '0');
-                          const distanceCost = record.estimatedDistance * distanceRate;
-                          const tripFee = parseFloat(record.tripFee?.toString() || '0');
-                          const driverExpenses = allowance + itemsTotal + distanceCost + tripFee;
-                          return formatCurrency(driverExpenses);
                         })()}
                       </Typography>
                     </Box>
@@ -1583,14 +1538,8 @@ export default function TripRecordsPage() {
                     
                   </Box>
                   
-                  {/* Calculate distance cost */}
+                  {/* Company Expenses Only */}
                   {(() => {
-                    const itemsTotal = viewDialog.record.tripItems?.reduce((sum: number, item: any) => 
-                      sum + (parseFloat(item.totalPrice || 0)), 0) || 0;
-                    
-                    // Calculate distance cost using state distanceRate
-                    const distanceCost = viewDialog.record.estimatedDistance * distanceRate;
-                    
                     // Company expenses = repair + toll + fuel + distanceCheck
                     const companyExpenses = [
                       viewDialog.record.distanceCheckFee,
@@ -1599,48 +1548,8 @@ export default function TripRecordsPage() {
                       viewDialog.record.repairCost
                     ].reduce((sum: number, cost) => sum + (parseFloat(cost?.toString() || '0')), 0);
                     
-                    // Driver expenses = allowance + items + distance cost + trip fee
-                    const tripFee = parseFloat(viewDialog.record.tripFee?.toString() || '0');
-                    const driverExpenses = parseFloat(viewDialog.record.totalAllowance.toString()) + itemsTotal + distanceCost + tripFee;
-                    
-                    const grandTotal = driverExpenses + companyExpenses;
-                    
                     return (
                       <>
-                        {/* Driver Expenses Section */}
-                        <Box sx={{ mb: 2, p: 2, bgcolor: 'success.50', borderRadius: 2, border: '1px solid', borderColor: 'success.200' }}>
-                          <Typography variant="caption" color="text.secondary" sx={{ fontWeight: 600, display: 'block', mb: 1 }}>
-                            ค่าใช้จ่ายที่ต้องจ่ายพนักงานขับรถ
-                          </Typography>
-                          <Typography variant="h6" color="success.main" sx={{ fontWeight: 700, mb: 1.5 }}>
-                            {formatCurrency(driverExpenses)}
-                          </Typography>
-                          <Box sx={{ display: 'flex', flexDirection: 'column', gap: 0.5 }}>
-                            <Box sx={{ display: 'flex', justifyContent: 'space-between' }}>
-                              <Typography variant="caption" color="text.secondary">ค่าเบี้ยเลี้ยง:</Typography>
-                              <Typography variant="caption" fontWeight="bold">{formatCurrency(viewDialog.record.totalAllowance)}</Typography>
-                            </Box>
-                            {itemsTotal > 0 && (
-                              <Box sx={{ display: 'flex', justifyContent: 'space-between' }}>
-                                <Typography variant="caption" color="text.secondary">ค่าพัสดุ:</Typography>
-                                <Typography variant="caption" fontWeight="bold">{formatCurrency(itemsTotal)}</Typography>
-                              </Box>
-                            )}
-                            {distanceCost > 0 && (
-                              <Box sx={{ display: 'flex', justifyContent: 'space-between' }}>
-                                <Typography variant="caption" color="text.secondary">ค่าระยะทาง:</Typography>
-                                <Typography variant="caption" fontWeight="bold">{formatCurrency(distanceCost)}</Typography>
-                              </Box>
-                            )}
-                            {tripFee > 0 && (
-                              <Box sx={{ display: 'flex', justifyContent: 'space-between' }}>
-                                <Typography variant="caption" color="text.secondary">ค่าเที่ยว:</Typography>
-                                <Typography variant="caption" fontWeight="bold">{formatCurrency(tripFee)}</Typography>
-                              </Box>
-                            )}
-                          </Box>
-                        </Box>
-
                         {/* Company Expenses Section */}
                         <Box sx={{ mb: 2, p: 2, bgcolor: companyExpenses > 0 ? 'warning.50' : 'grey.50', borderRadius: 2, border: '1px solid', borderColor: companyExpenses > 0 ? 'warning.200' : 'grey.200' }}>
                           <Typography variant="caption" color="text.secondary" sx={{ fontWeight: 600, display: 'block', mb: 1 }}>
@@ -1672,30 +1581,6 @@ export default function TripRecordsPage() {
                               <Typography variant="caption" color="text.secondary">ค่าซ่อมแซม:</Typography>
                               <Typography variant="caption" fontWeight="bold">
                                 {viewDialog.record.repairCost ? formatCurrency(viewDialog.record.repairCost) : formatCurrency(0)}
-                              </Typography>
-                            </Box>
-                          </Box>
-                        </Box>
-
-                        {/* Grand Total */}
-                        <Box sx={{ p: 2, bgcolor: 'info.50', borderRadius: 2, border: '2px solid', borderColor: 'info.200', textAlign: 'center' }}>
-                          <Typography variant="caption" color="text.secondary" sx={{ fontWeight: 600 }}>
-                            มูลค่ารวมทั้งหมด
-                          </Typography>
-                          <Typography variant="h5" color="info.main" sx={{ fontWeight: 700, mt: 0.5, mb: 1 }}>
-                            {formatCurrency(grandTotal)}
-                          </Typography>
-                          <Box sx={{ display: 'flex', flexDirection: 'column', gap: 0.5 }}>
-                            <Box sx={{ display: 'flex', justifyContent: 'space-between' }}>
-                              <Typography variant="caption" color="text.secondary">จ่ายพนักงานขับรถ:</Typography>
-                              <Typography variant="caption" fontWeight="bold" color="success.main">
-                                {formatCurrency(driverExpenses)}
-                              </Typography>
-                            </Box>
-                            <Box sx={{ display: 'flex', justifyContent: 'space-between' }}>
-                              <Typography variant="caption" color="text.secondary">ค่าใช้จ่ายบริษัท:</Typography>
-                              <Typography variant="caption" fontWeight="bold" color="warning.main">
-                                {companyExpenses > 0 ? formatCurrency(companyExpenses) : formatCurrency(0)}
                               </Typography>
                             </Box>
                           </Box>
@@ -2041,9 +1926,7 @@ export default function TripRecordsPage() {
                       <Typography variant="subtitle1" color="success.main" sx={{ fontWeight: 600 }}>
                         {formatCurrency(viewDialog.record.totalAllowance)}
                       </Typography>
-                      <Typography variant="caption" color="text.secondary">
-                        อัตรา {viewDialog.record.allowanceRate} บาท/วัน
-                      </Typography>
+                      
                     </Box>
                   </Box>
                   

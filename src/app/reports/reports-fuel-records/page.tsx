@@ -26,7 +26,9 @@ import {
   Accordion,
   AccordionSummary,
   AccordionDetails,
-  TableFooter
+  TableFooter,
+  Autocomplete,
+  TextField
 } from '@mui/material';
 import {
   LocalGasStation as FuelIcon,
@@ -124,6 +126,7 @@ interface Vehicle {
   fuelTank?: number;
   fuelConsume?: number;
   fuelConsumeMth?: number;
+  isActive?: boolean | number; // สถานะการใช้งานรถ
   // New driver relations
   mainDriver?: Driver;
   backupDriver?: Driver;
@@ -351,11 +354,13 @@ export default function FuelRecordsReport() {
 
   const loadVehicles = async () => {
     try {
-      const response = await fetch('/api/vehicles');
+      // ดึงรถทุกคัน (รวม inactive) เพื่อให้ filter แสดงครบ
+      const response = await fetch('/api/vehicles?status=all&limit=1000');
       const result = await response.json();
 
       if (response.ok) {
         const vehicleList = result.vehicles || result.data || [];
+        console.log(`📋 [Vehicles] Loaded ${vehicleList.length} vehicles (including inactive)`);
         setVehicles(vehicleList);
       } else {
         showSnackbar('เกิดข้อผิดพลาดในการดึงข้อมูลรถ', 'error');
@@ -515,16 +520,37 @@ export default function FuelRecordsReport() {
       params.append('startDate', formatDate(startDate));
       params.append('endDate', formatDate(endDate));
 
-      // Query fuel records to get unique vehicle IDs
-      const response = await fetch(`/api/fuel-records?page=1&limit=1000&${params.toString()}`);
-      const result = await response.json();
+      // ดึงหน้าแรกเพื่อดูจำนวนทั้งหมด
+      const firstResponse = await fetch(`/api/fuel-records?page=1&limit=100&${params.toString()}`);
+      const firstResult = await firstResponse.json();
       
-      if (response.ok) {
-        const records = result.data || [];
-        
-        // Extract unique vehicle IDs from fuel records
+      if (firstResponse.ok) {
+        const allRecords: any[] = [...(firstResult.data || [])];
+        const total = firstResult.pagination?.total || 0;
+        const totalPages = Math.ceil(total / 100);
+
+        console.log(`📋 [Available Vehicles] Total records: ${total}, fetching ${totalPages} pages...`);
+
+        // ดึงหน้าที่เหลือถ้ามีมากกว่า 1 หน้า
+        if (totalPages > 1) {
+          const remainingPages = [];
+          for (let page = 2; page <= totalPages; page++) {
+            remainingPages.push(
+              fetch(`/api/fuel-records?page=${page}&limit=100&${params.toString()}`)
+                .then(res => res.json())
+                .then(result => result.data || [])
+            );
+          }
+
+          const remainingRecords = await Promise.all(remainingPages);
+          remainingRecords.forEach(pageRecords => {
+            allRecords.push(...pageRecords);
+          });
+        }
+
+        // Extract unique vehicle IDs from ALL fuel records
         const vehicleIds = new Set<number>();
-        records.forEach((record: any) => {
+        allRecords.forEach((record: any) => {
           if (record.vehicleId) {
             vehicleIds.add(record.vehicleId);
           }
@@ -533,7 +559,8 @@ export default function FuelRecordsReport() {
         // Filter vehicles that have fuel records in this period
         const filtered = vehicles.filter(v => vehicleIds.has(v.id));
         
-        console.log(`📋 [Available Vehicles] Found ${filtered.length} vehicles with fuel records in selected period`);
+        console.log(`📋 [Available Vehicles] Found ${filtered.length} vehicles with fuel records (from ${allRecords.length} records)`);
+        console.log(`📋 [Available Vehicles] Vehicle IDs with records:`, Array.from(vehicleIds));
         setAvailableVehicles(filtered);
       } else {
         setAvailableVehicles([]);
@@ -1461,28 +1488,76 @@ export default function FuelRecordsReport() {
           }}>
 
             {/* Filter 1: เลือกทะเบียนรถ */}
-            <FormControl fullWidth size="small">
-              <InputLabel>เลือกทะเบียนรถ</InputLabel>
-              <Select
-                value={filters.vehicleId}
-                label="เลือกทะเบียนรถ"
-                onChange={(e) => setFilters(prev => ({ ...prev, vehicleId: e.target.value }))}
-                disabled={loadingVehicles}
-              >
-                <MenuItem value="">-- ทั้งหมด --</MenuItem>
-                {loadingVehicles ? (
-                  <MenuItem disabled>กำลังโหลด...</MenuItem>
-                ) : availableVehicles.length > 0 ? (
-                  availableVehicles.map((vehicle) => (
-                    <MenuItem key={vehicle.id} value={vehicle.id.toString()}>
-                      {vehicle.licensePlate} - {vehicle.brand} {vehicle.model} ({getVehicleTypeLabel(vehicle.vehicleType)})
-                    </MenuItem>
-                  ))
-                ) : (
-                  <MenuItem disabled>ไม่มีรถที่มีข้อมูลในช่วงเวลานี้</MenuItem>
-                )}
-              </Select>
-            </FormControl>
+            <Autocomplete
+              size="small"
+              options={[...availableVehicles].sort((a, b) => {
+                // เรียงตามประเภทรถก่อน แล้วตามทะเบียน
+                const typeOrder: Record<string, number> = { 'truck': 1, 'pickup': 2, 'forklift': 3 };
+                const typeA = typeOrder[a.vehicleType?.toLowerCase()] || 99;
+                const typeB = typeOrder[b.vehicleType?.toLowerCase()] || 99;
+                if (typeA !== typeB) return typeA - typeB;
+                return (a.licensePlate || '').localeCompare(b.licensePlate || '', 'th');
+              })}
+              groupBy={(option) => getVehicleTypeLabel(option.vehicleType)}
+              getOptionLabel={(option) => 
+                option ? `${option.licensePlate} - ${option.brand} ${option.model || ''} (${getVehicleTypeLabel(option.vehicleType)})` : ''
+              }
+              value={vehicles.find(v => v.id.toString() === filters.vehicleId) || null}
+              onChange={(_, newValue) => {
+                setFilters(prev => ({ ...prev, vehicleId: newValue ? newValue.id.toString() : '' }));
+              }}
+              loading={loadingVehicles}
+              loadingText="กำลังโหลด..."
+              noOptionsText={loadingVehicles ? "กำลังโหลด..." : "ไม่พบรถที่มีข้อมูลในเดือนนี้"}
+              isOptionEqualToValue={(option, value) => option?.id === value?.id}
+              renderGroup={(params) => (
+                <li key={params.key}>
+                  <Box sx={{ 
+                    position: 'sticky', 
+                    top: -8, 
+                    px: 2, 
+                    py: 1, 
+                    bgcolor: 'primary.main', 
+                    color: 'primary.contrastText',
+                    fontWeight: 600,
+                    fontSize: '0.85rem'
+                  }}>
+                    {params.group}
+                  </Box>
+                  <ul style={{ padding: 0 }}>{params.children}</ul>
+                </li>
+              )}
+              renderOption={(props, option) => {
+                return (
+                  <li {...props} key={option.id}>
+                    <Box sx={{ display: 'flex', alignItems: 'center', width: '100%', gap: 1 }}>
+                      <Box sx={{ flexGrow: 1 }}>
+                        <Typography variant="body2" sx={{ fontWeight: 500 }}>
+                          {option.licensePlate} - {option.brand} {option.model || ''}
+                        </Typography>
+                      </Box>
+                    </Box>
+                  </li>
+                );
+              }}
+              renderInput={(params) => (
+                <TextField
+                  {...params}
+                  label="ค้นหาทะเบียนรถ"
+                  placeholder="พิมพ์ทะเบียนรถ..."
+                  InputProps={{
+                    ...params.InputProps,
+                    endAdornment: (
+                      <>
+                        {loadingVehicles ? <CircularProgress color="inherit" size={20} /> : null}
+                        {params.InputProps.endAdornment}
+                      </>
+                    ),
+                  }}
+                />
+              )}
+              sx={{ minWidth: 280 }}
+            />
 
             {/* Filter 2: เดือน */}
             <FormControl fullWidth size="small">

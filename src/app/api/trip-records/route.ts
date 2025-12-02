@@ -51,6 +51,7 @@ export async function GET(request: NextRequest) {
         { customer: { cmName: { contains: search } } },
         { customer: { cmCode: { contains: search } } },
         { remark: { contains: search } },
+        { documentNumber: { contains: search } },
       ];
     }
 

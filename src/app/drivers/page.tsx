@@ -56,6 +56,8 @@ import {
   Cancel as InactiveIcon,
   Phone as PhoneIcon,
   Clear as ClearIcon,
+  Save as SaveIcon,
+  PhotoCamera,
 } from '@mui/icons-material';
 import Layout from '../components/Layout';
 import DataTablePagination from '../../components/DataTablePagination';
@@ -102,6 +104,7 @@ function DriversPageContent() {
     hasNext: false,
     hasPrev: false,
   });
+  const [initialLoad, setInitialLoad] = useState(true);
 
   // State สำหรับ Dialog
   const [dialogOpen, setDialogOpen] = useState(false);
@@ -193,8 +196,6 @@ function DriversPageContent() {
         status: statusFilter,
         ...(search && { search }),
       });
-      
-      console.log('Fetching drivers with params:', Object.fromEntries(params)); // Debug log
 
       // Optimized fetch with proper error handling and timeout
       const controller = new AbortController();
@@ -208,9 +209,6 @@ function DriversPageContent() {
       });
       
       clearTimeout(timeoutId);
-
-      console.log('Response status:', response.status); // Debug log
-      console.log('Response headers:', Object.fromEntries(response.headers)); // Debug log
 
       if (!response.ok) {
         const errorData = await response.json().catch(() => null);
@@ -232,15 +230,14 @@ function DriversPageContent() {
       }
 
       const data = await response.json();
-      console.log('API Response data:', data); // Debug log
 
       if (data.drivers) {
         setDrivers(data.drivers);
         setPagination(data.pagination);
         
-        // Load usage info and wait for it to complete before showing UI
+        // Load usage info in background - don't wait for it
         if (data.drivers.length > 0) {
-          await fetchDriverUsageInfo(data.drivers).catch(error => {
+          fetchDriverUsageInfo(data.drivers).catch(error => {
             console.warn('Failed to fetch driver usage info:', error);
           });
         }
@@ -259,17 +256,27 @@ function DriversPageContent() {
     }
   };
 
+  // Initial load
   useEffect(() => {
-    if (status === 'loading') return; // รอ session โหลด
+    if (status === 'loading') return;
     
     if (status === 'unauthenticated') {
       router.push('/login');
       return;
     }
     
-    if (status === 'authenticated') {
-      // Use debounced fetch for search terms
+    if (status === 'authenticated' && initialLoad) {
+      fetchDrivers(1, pagination.limit);
+      setInitialLoad(false);
+    }
+  }, [status]);
+
+  // Handle search and filter changes with debounce for search
+  useEffect(() => {
+    // Skip initial load - let the initial useEffect handle the first load
+    if (!initialLoad && status === 'authenticated') {
       if (searchTerm) {
+        // Debounce search
         const delayedFetch = setTimeout(() => {
           fetchDrivers(1, pagination.limit, searchTerm);
         }, 300);
@@ -279,19 +286,7 @@ function DriversPageContent() {
         fetchDrivers(1, pagination.limit, searchTerm);
       }
     }
-  }, [searchTerm, statusFilter, pagination.limit, status]);
-
-  // Separate useEffect for pagination changes (no debounce needed)
-  useEffect(() => {
-    if (status === 'authenticated' && pagination.page > 1) {
-      fetchDrivers(pagination.page, pagination.limit, searchTerm);
-    }
-  }, [pagination.page]);
-
-  // Reset pagination when search term changes
-  useEffect(() => {
-    setPagination(prev => ({ ...prev, page: 1 }));
-  }, [searchTerm]);
+  }, [searchTerm, statusFilter, pagination.limit]);
 
   // Handle status filter
   const handleStatusFilter = (status: string) => {
@@ -360,28 +355,40 @@ function DriversPageContent() {
     return false;
   };
 
-  // อัพโหลดรูปภาพและลบรูปเดิม
+  // อัพโหลดรูปภาพและลบรูปเดิม (ใช้ระบบเดียวกับ vehicles มีการ resize)
   const uploadDriverImage = async (driverId: number, oldImagePath?: string) => {
     if (!imageFile) return null;
 
-    const formData = new FormData();
-    formData.append('driverImage', imageFile);
-    formData.append('driverId', driverId.toString());
-    if (oldImagePath) {
-      formData.append('oldImagePath', oldImagePath);
+    // ใช้ uploadImageFile จาก ImageUploadDeferred (มี resize ด้วย Sharp)
+    const { uploadImageFile } = await import('../components/ImageUploadDeferred');
+    const imagePath = await uploadImageFile(imageFile, 'driver');
+    
+    // ลบรูปเดิมถ้ามี
+    if (oldImagePath && oldImagePath.startsWith('/uploads/')) {
+      try {
+        await fetch('/api/drivers/delete-image', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ driverId, imagePath: oldImagePath }),
+        });
+      } catch (error) {
+        console.warn('Failed to delete old image:', error);
+      }
     }
-
-    const response = await fetch('/api/drivers/upload-image', {
-      method: 'POST',
-      body: formData,
+    
+    // อัพเดท path ในฐานข้อมูล
+    const updateResponse = await fetch(`/api/drivers/${driverId}`, {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ driverImage: imagePath }),
     });
 
-    if (!response.ok) {
-      throw new Error('Failed to upload image');
+    if (!updateResponse.ok) {
+      console.error('Failed to update driver image in database');
+      throw new Error('Failed to update driver image in database');
     }
 
-    const result = await response.json();
-    return result.data.imagePath;
+    return imagePath;
   };
 
   // Delete driver image
@@ -441,12 +448,12 @@ function DriversPageContent() {
 
   // Handle pagination
   const handlePageChange = (event: unknown, newPage: number) => {
-    setPagination(prev => ({ ...prev, page: newPage + 1 }));
+    fetchDrivers(newPage + 1, pagination.limit, searchTerm);
   };
 
   const handleLimitChange = (event: React.ChangeEvent<HTMLInputElement>) => {
     const newLimit = parseInt(event.target.value, 10);
-    setPagination(prev => ({ ...prev, limit: newLimit, page: 1 }));
+    fetchDrivers(1, newLimit, searchTerm);
   };
 
   // Dialog handlers
@@ -608,13 +615,15 @@ function DriversPageContent() {
       const driverId = result.data.id;
 
       // หากมีการเปลี่ยนรูปภาพ ให้อัพโหลดรูปใหม่
+      let uploadedImagePath = null;
       if (imageFile) {
         try {
           const oldImagePath = dialogMode === 'edit' ? editingDriver?.driverImage : undefined;
-          const newImagePath = await uploadDriverImage(driverId, oldImagePath);
+          uploadedImagePath = await uploadDriverImage(driverId, oldImagePath);
           
-          if (newImagePath) {
-            console.log('Image uploaded successfully:', newImagePath);
+          // อัพเดท imagePreview ให้แสดงรูปใหม่
+          if (uploadedImagePath) {
+            setImagePreview(getImageUrl(uploadedImagePath));
           }
         } catch (imageError) {
           console.error('Error uploading image:', imageError);
@@ -1270,6 +1279,9 @@ function DriversPageContent() {
                   <Typography variant="subtitle2" gutterBottom>
                     รูปภาพคนขับ
                   </Typography>
+                  <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mb: 1 }}>
+                    รูปจะถูก resize เป็น 400x400px อัตโนมัติ
+                  </Typography>
                   
                   <Box
                     sx={{
@@ -1277,13 +1289,20 @@ function DriversPageContent() {
                       height: 200,
                       mx: 'auto',
                       mb: 2,
-                      border: '2px dashed #ccc',
+                      border: imagePreview ? '2px solid' : '2px dashed',
+                      borderColor: imagePreview ? 'primary.main' : '#ccc',
                       borderRadius: 2,
                       display: 'flex',
                       alignItems: 'center',
                       justifyContent: 'center',
                       position: 'relative',
-                      backgroundColor: '#f9f9f9',
+                      backgroundColor: imagePreview ? 'transparent' : '#f9f9f9',
+                      overflow: 'hidden',
+                      transition: 'all 0.3s ease',
+                      '&:hover': dialogMode !== 'view' ? {
+                        borderColor: 'primary.main',
+                        backgroundColor: imagePreview ? 'transparent' : 'primary.50',
+                      } : {},
                     }}
                   >
                     {imagePreview ? (
@@ -1294,12 +1313,15 @@ function DriversPageContent() {
                           width: '100%',
                           height: '100%',
                           objectFit: 'cover',
-                          borderRadius: 8,
+                        }}
+                        onError={(e) => {
+                          console.error('Image preview load error');
+                          (e.target as HTMLImageElement).style.display = 'none';
                         }}
                       />
                     ) : (
-                      <Box sx={{ textAlign: 'center', color: '#999' }}>
-                        <ImageIcon sx={{ fontSize: 48, mb: 1 }} />
+                      <Box sx={{ textAlign: 'center', color: 'grey.500' }}>
+                        <ImageIcon sx={{ fontSize: 48, mb: 1, opacity: 0.5 }} />
                         <Typography variant="body2">
                           ไม่มีรูปภาพ
                         </Typography>
@@ -1310,31 +1332,37 @@ function DriversPageContent() {
                   {dialogMode !== 'view' && (
                     <Box sx={{ display: 'flex', gap: 1, flexDirection: 'column' }}>
                       <Button
-                        variant="outlined"
+                        variant={imagePreview ? "outlined" : "contained"}
                         component="label"
-                        startIcon={<ImageIcon />}
-                        sx={{ mb: 1 }}
+                        startIcon={<PhotoCamera />}
+                        fullWidth
+                        color={imagePreview ? "inherit" : "primary"}
                       >
-                        เลือกรูปภาพ
+                        {imagePreview ? 'เปลี่ยนรูป' : 'เลือกรูป'}
                         <input
                           type="file"
                           hidden
-                          accept="image/*"
+                          accept="image/jpeg,image/jpg,image/png,image/webp"
                           onChange={handleImageChange}
                         />
                       </Button>
                       
-                      {imagePreview && editingDriver?.driverImage && (
+                      {imagePreview && (
                         <Button
                           variant="outlined"
                           color="error"
                           startIcon={<DeleteIcon />}
                           onClick={handleDeleteAvatar}
-                          sx={{ mb: 1 }}
+                          fullWidth
                         >
                           ลบรูปภาพ
                         </Button>
                       )}
+                      
+                      <Typography variant="caption" color="text.secondary" sx={{ mt: 1, textAlign: 'center' }}>
+                        รองรับ: JPG, PNG, WebP<br />
+                        สูงสุด 15MB
+                      </Typography>
                     </Box>
                   )}
                 </Box>
@@ -1560,7 +1588,7 @@ function DriversPageContent() {
                 !formData.driverName.trim() ||
                 !formData.driverLicense.trim()
               }
-              startIcon={submitting ? <CircularProgress size={16} /> : null}
+              startIcon={submitting ? <CircularProgress size={16} color="inherit" /> : <SaveIcon />}
             >
               {submitting ? 
                 (imageFile ? 'กำลังบันทึกและอัพโหลดรูป...' : 'กำลังบันทึก...') : 

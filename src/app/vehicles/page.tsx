@@ -204,8 +204,6 @@ function VehiclesPageContent() {
         ...(vehicleTypeFilter && { vehicleType: vehicleTypeFilter }),
         ...(licensePlateFilter && { licensePlate: licensePlateFilter }),
       });
-      
-      console.log('Fetching vehicles with params:', Object.fromEntries(params)); // Debug log
 
       // Optimized fetch with proper error handling
       const controller = new AbortController();
@@ -314,12 +312,10 @@ function VehiclesPageContent() {
       
       if (response.ok) {
         const result = await response.json();
-        console.log('Vehicle options response:', result); // Debug log
         if (result.success) {
           setAvailableBrands(result.data.brands);
           setAvailableVehicleTypes(result.data.vehicleTypes);
           setAvailableLicensePlates(result.data.licensePlates || []);
-          console.log('License plates loaded:', result.data.licensePlates); // Debug log
         }
       }
     } catch (error) {
@@ -681,7 +677,6 @@ function VehiclesPageContent() {
                  value={licensePlateFilter}
                  label="ทะเบียนรถ"
                  onChange={(e) => {
-                   console.log('License plate filter changed to:', e.target.value); // Debug log
                    setLicensePlateFilter(e.target.value);
                  }}
                  size="small"
@@ -992,10 +987,8 @@ function VehiclesPageContent() {
                                 style: { objectFit: 'cover' }
                               }}
                               onError={(e) => {
-                                console.error('❌ Car image load error:', vehicle.carImage);
                                 // หาก fallback API ยังล้มเหลว ใน development mode ลอง static file
                                 if (vehicle.carImage && vehicle.carImage.includes('api/serve-image') && process.env.NODE_ENV === 'development') {
-                                  console.log('🔄 Fallback API failed, trying static file for:', vehicle.carImage);
                                   const urlParams = new URLSearchParams(vehicle.carImage.split('?')[1]);
                                   const originalPath = urlParams.get('path');
                                   if (originalPath) {
@@ -1005,9 +998,6 @@ function VehiclesPageContent() {
                                     }
                                   }
                                 }
-                              }}
-                              onLoad={() => {
-                                console.log('✅ Car image loaded successfully:', vehicle.carImage);
                               }}
                             />
                           ) : (
@@ -1055,12 +1045,6 @@ function VehiclesPageContent() {
                                 loading: 'lazy',
                                 style: { objectFit: 'cover' }
                               }}
-                              onError={(e) => {
-                                console.error('❌ Driver image load error:', vehicle.mainDriver?.driverImage);
-                              }}
-                              onLoad={() => {
-                                console.log('✅ Driver image loaded successfully:', vehicle.mainDriver?.driverImage);
-                              }}
                             />
                           ) : (
                             <Avatar sx={{ 
@@ -1101,12 +1085,6 @@ function VehiclesPageContent() {
                               imgProps={{
                                 loading: 'lazy',
                                 style: { objectFit: 'cover' }
-                              }}
-                              onError={(e) => {
-                                console.error('❌ Backup driver image load error:', vehicle.backupDriver?.driverImage);
-                              }}
-                              onLoad={() => {
-                                console.log('✅ Backup driver image loaded successfully:', vehicle.backupDriver?.driverImage);
                               }}
                             />
                           ) : vehicle.backupDriver?.driverName ? (
@@ -1623,12 +1601,6 @@ function VehiclesPageContent() {
                           border: '2px solid',
                           borderColor: 'primary.light'
                         }}
-                        onError={(e) => {
-                          console.error('❌ Selected driver image load error:', selectedVehicle.mainDriver?.driverImage);
-                        }}
-                        onLoad={() => {
-                          console.log('✅ Selected driver image loaded successfully:', selectedVehicle.mainDriver?.driverImage);
-                        }}
                       >
                         {selectedVehicle.mainDriver?.driverName ? 
                           selectedVehicle.mainDriver.driverName.charAt(0).toUpperCase() : '👤'
@@ -1654,12 +1626,6 @@ function VehiclesPageContent() {
                           mb: 1,
                           border: '2px solid',
                           borderColor: 'secondary.light'
-                        }}
-                        onError={(e) => {
-                          console.error('❌ Selected backup driver image load error:', selectedVehicle.backupDriver?.driverImage);
-                        }}
-                        onLoad={() => {
-                          console.log('✅ Selected backup driver image loaded successfully:', selectedVehicle.backupDriver?.driverImage);
                         }}
                       >
                         {selectedVehicle.backupDriver?.driverName ? 

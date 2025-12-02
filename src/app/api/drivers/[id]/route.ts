@@ -296,6 +296,23 @@ export async function PATCH(
       });
     }
 
+    // ถ้าเป็นการอัพเดทรูปภาพ
+    if (body.driverImage !== undefined) {
+      await prisma.$queryRaw`
+        UPDATE drivers SET 
+          driver_image = ${body.driverImage},
+          updated_by = ${session.user.username || session.user.email || 'system'},
+          updated_at = NOW()
+        WHERE id = ${driverId}
+      `;
+
+      return NextResponse.json({
+        success: true,
+        message: 'อัพเดทรูปภาพเรียบร้อยแล้ว',
+        data: { imagePath: body.driverImage }
+      });
+    }
+
     return NextResponse.json({ error: 'Invalid action' }, { status: 400 });
   } catch (error) {
     console.error('Error updating driver status:', error);

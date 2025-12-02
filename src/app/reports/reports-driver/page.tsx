@@ -246,6 +246,7 @@ export default function DriverReport() {
   const [drivers, setDrivers] = useState<string[]>([]);
   const [driverImages, setDriverImages] = useState<Map<string, string>>(new Map());
   const [distanceRate, setDistanceRate] = useState<number>(1.2); // Default to 1.2
+  const [freeDistanceThreshold, setFreeDistanceThreshold] = useState<number>(1500); // Default 1500, จะโหลดจาก system_settings
   const [page, setPage] = useState(0);
   const [rowsPerPage, setRowsPerPage] = useState(20);
   const [filters, setFilters] = useState<FilterState>({
@@ -322,18 +323,42 @@ export default function DriverReport() {
     return years;
   };
 
+  /**
+   * คำนวณค่าระยะทางแบบ progressive สำหรับรายเที่ยว
+   * @param tripDistance - ระยะทางของเที่ยวนี้
+   * @param cumulativeDistanceBefore - ระยะทางสะสมก่อนเที่ยวนี้
+   * @param rate - อัตราค่าระยะทาง (เช่น 1.2)
+   * @param freeThreshold - ระยะทางฟรี (เช่น 1500 กม.)
+   * @returns ค่าระยะทางที่ต้องจ่ายสำหรับเที่ยวนี้
+   */
+  const calculateProgressiveDistanceCost = (
+    tripDistance: number,
+    cumulativeDistanceBefore: number,
+    rate: number,
+    freeThreshold: number
+  ): number => {
+    if (tripDistance <= 0) return 0;
+    
+    const cumulativeAfter = cumulativeDistanceBefore + tripDistance;
+    
+    // กรณีที่ยังไม่เกิน threshold
+    if (cumulativeAfter <= freeThreshold) {
+      return 0;
+    }
+    
+    // กรณีที่เกิน threshold
+    if (cumulativeDistanceBefore >= freeThreshold) {
+      // ทุก km ของเที่ยวนี้ต้องจ่าย
+      return tripDistance * rate;
+    }
+    
+    // กรณีที่เที่ยวนี้ทำให้ข้ามเกิน threshold
+    const chargeableDistance = cumulativeAfter - freeThreshold;
+    return chargeableDistance * rate;
+  };
+
   // Transform API data to match our interface
   const transformTripRecord = (apiRecord: ApiTripRecord): TripRecord => {
-    // Debug: Log trip record data to verify driver fields
-    if (DEBUG_REPORTS_DRIVER) {
-      console.log('🔍 Trip Record Debug:', {
-        id: apiRecord.id,
-        driverName: apiRecord.driverName,
-        driverLicense: apiRecord.driverLicense,
-        driverImage: apiRecord.driverImage,
-        driverType: apiRecord.driverType
-      });
-    }
   // Sum supplies (ค่าพัสดุ) from tripItems.totalPrice
   const suppliesCost = Array.isArray(apiRecord.tripItems)
     ? apiRecord.tripItems.reduce((sum: number, ti: any) => {
@@ -359,33 +384,7 @@ const tripFee = parseFloat(apiRecord.tripFee || '0') || 0;
 
 // คำนวณค่าใช้จ่ายแต่ละประเภท
 const driverExpenses = allowance + calculatedDistanceCost + suppliesCost; // เบี้ยเลี้ยง + ค่าระยะทาง + ค่าพัสดุ
-const totalCosts = driverExpenses + tripFee; // รวมค่าใช้จ่ายคนขับ + ค่าเที่ยวรถ  // Debug: Log calculation values
-  if (DEBUG_REPORTS_DRIVER) {
-    console.log('💰 Expense Calculation Debug:', {
-      id: apiRecord.id,
-      rawData: {
-        totalAllowance: apiRecord.totalAllowance,
-        estimatedDistance: apiRecord.estimatedDistance,
-        tripFee: apiRecord.tripFee,
-        tripItems: apiRecord.tripItems?.length || 0
-      },
-      calculation: {
-        estimatedDistance,
-        distanceRate,
-        calculatedDistanceCost: calculatedDistanceCost
-      },
-      parsed: {
-        allowance,
-        calculatedDistanceCost,
-        suppliesCost,
-        tripFee
-      },
-      calculated: {
-        driverExpenses,
-        totalCosts
-      }
-    });
-  }
+const totalCosts = driverExpenses + tripFee; // รวมค่าใช้จ่ายคนขับ + ค่าเที่ยวรถ
     return {
       id: apiRecord.id,
       tripDate: apiRecord.departureDate,
@@ -425,12 +424,14 @@ const totalCosts = driverExpenses + tripFee; // รวมค่าใช้จ�
 
   // Load initial data
   useEffect(() => {
-    console.log('🚀 Driver Report Component Loading - Debug Mode:', DEBUG_REPORTS_DRIVER);
     const loadInitialData = async () => {
       setLoading(true);
       try {
-        // Load distance rate first
-        await loadDistanceRate();
+        // Load distance rate and free distance threshold first
+        await Promise.all([
+          loadDistanceRate(),
+          loadFreeDistanceThreshold()
+        ]);
         // Then load vehicles
         await loadVehicles();
       } catch (error) {
@@ -453,16 +454,102 @@ const totalCosts = driverExpenses + tripFee; // รวมค่าใช้จ�
   // Filter by driver when driverName filter changes (client-side only)
   useEffect(() => {
     let filtered = tripRecords;
-    if (filters.driverName) {
-      filtered = tripRecords.filter(record => record.driverName === filters.driverName);
-    }
     
-    // Sort by date (ascending order - earliest to latest)
-    filtered.sort((a, b) => {
-      const dateA = new Date(a.tripDate);
-      const dateB = new Date(b.tripDate);
-      return dateA.getTime() - dateB.getTime();
-    });
+    if (filters.driverName) {
+      // กรณีเลือกคนขับเฉพาะคน
+      filtered = tripRecords.filter(record => record.driverName === filters.driverName);
+      
+      // Sort by date (ascending order - earliest to latest)
+      filtered.sort((a, b) => {
+        const dateA = new Date(a.tripDate);
+        const dateB = new Date(b.tripDate);
+        return dateA.getTime() - dateB.getTime();
+      });
+      
+      // Recalculate distance cost with progressive calculation
+      let cumulativeDistance = 0;
+      filtered = filtered.map(record => {
+        const tripDistance = record.estimatedDistance || 0;
+        const progressiveDistanceCost = calculateProgressiveDistanceCost(
+          tripDistance,
+          cumulativeDistance,
+          distanceRate,
+          freeDistanceThreshold
+        );
+        
+        cumulativeDistance += tripDistance;
+        
+        // Recalculate driverExpenses and totalCosts with new distance cost
+        const driverExpenses = (record.allowance || 0) + progressiveDistanceCost + (record.suppliesCost || 0);
+        const totalCosts = driverExpenses + (record.tripFee || 0);
+        
+        return {
+          ...record,
+          calculatedDistanceCost: progressiveDistanceCost,
+          driverExpenses,
+          totalCosts
+        };
+      });
+    } else {
+      // กรณีเลือก "คนขับทั้งหมด" - คำนวณแยกตามคนขับแต่ละคน
+      
+      // 1. จัดกลุ่มตามคนขับ
+      const recordsByDriver = new Map<string, TripRecord[]>();
+      tripRecords.forEach(record => {
+        const driverName = record.driverName || 'ไม่ระบุ';
+        if (!recordsByDriver.has(driverName)) {
+          recordsByDriver.set(driverName, []);
+        }
+        recordsByDriver.get(driverName)!.push(record);
+      });
+      
+      // 2. คำนวณค่าระยะทางแยกตามคนขับแต่ละคน
+      const processedRecords: TripRecord[] = [];
+      
+      recordsByDriver.forEach((driverRecords, driverName) => {
+        // เรียงตามวันที่สำหรับแต่ละคนขับ
+        const sortedRecords = [...driverRecords].sort((a, b) => {
+          const dateA = new Date(a.tripDate);
+          const dateB = new Date(b.tripDate);
+          return dateA.getTime() - dateB.getTime();
+        });
+        
+        // คำนวณค่าระยะทางแบบสะสมสำหรับคนขับคนนี้
+        let cumulativeDistance = 0;
+        
+        const calculatedRecords = sortedRecords.map(record => {
+          const tripDistance = record.estimatedDistance || 0;
+          const progressiveDistanceCost = calculateProgressiveDistanceCost(
+            tripDistance,
+            cumulativeDistance,
+            distanceRate,
+            freeDistanceThreshold
+          );
+          
+          cumulativeDistance += tripDistance;
+          
+          // Recalculate expenses
+          const driverExpenses = (record.allowance || 0) + progressiveDistanceCost + (record.suppliesCost || 0);
+          const totalCosts = driverExpenses + (record.tripFee || 0);
+          
+          return {
+            ...record,
+            calculatedDistanceCost: progressiveDistanceCost,
+            driverExpenses,
+            totalCosts
+          };
+        });
+        
+        processedRecords.push(...calculatedRecords);
+      });
+      
+      // 3. เรียงข้อมูลทั้งหมดตามวันที่อีกครั้ง (เพื่อแสดงผล)
+      filtered = processedRecords.sort((a, b) => {
+        const dateA = new Date(a.tripDate);
+        const dateB = new Date(b.tripDate);
+        return dateA.getTime() - dateB.getTime();
+      });
+    }
     
     setFilteredRecords(filtered);
     
@@ -507,20 +594,26 @@ const totalCosts = driverExpenses + tripFee; // รวมค่าใช้จ�
         const rate = parseFloat(result.value);
         if (!isNaN(rate) && rate > 0) {
           setDistanceRate(rate);
-          if (DEBUG_REPORTS_DRIVER) {
-            console.log('📏 Distance Rate loaded:', rate);
-          }
-        }
-      } else {
-        if (DEBUG_REPORTS_DRIVER) {
-          console.log('⚠️ Using default distance rate: 1.2');
         }
       }
     } catch (error) {
       console.error('Error loading distance rate, using default:', error);
-      if (DEBUG_REPORTS_DRIVER) {
-        console.log('⚠️ Using default distance rate due to error: 1.2');
+    }
+  };
+
+  const loadFreeDistanceThreshold = async () => {
+    try {
+      const response = await fetch('/api/system-settings/free_distance_threshold');
+      const result = await response.json();
+
+      if (result.success && result.data?.value !== undefined) {
+        const threshold = parseFloat(result.data.value);
+        if (!isNaN(threshold) && threshold >= 0) {
+          setFreeDistanceThreshold(threshold);
+        }
       }
+    } catch (error) {
+      console.error('Error loading free distance threshold, using default:', error);
     }
   };
 
@@ -532,9 +625,6 @@ const totalCosts = driverExpenses + tripFee; // รวมค่าใช้จ�
       if (response.ok) {
         // Fix: API returns data in 'data' field, not 'vehicles'
         const vehicleList = result.data || result.vehicles || [];
-        if (DEBUG_REPORTS_DRIVER) {
-          console.log('Vehicle API response debug:', { count: vehicleList.length, sample: vehicleList.slice(0,3) });
-        }
         
         setVehicles(vehicleList);
       } else {
@@ -591,8 +681,6 @@ const totalCosts = driverExpenses + tripFee; // รวมค่าใช้จ�
         const total = firstResult.pagination?.total || 0;
         const totalPages = Math.ceil(total / 100);
 
-        console.log(`📋 [Reports-Driver] Filtered trip records: ${total}, fetching ${totalPages} pages...`);
-
         // Fetch remaining pages if there are more
         if (totalPages > 1) {
           const remainingPages = [];
@@ -610,39 +698,9 @@ const totalCosts = driverExpenses + tripFee; // รวมค่าใช้จ�
             allApiRecords.push(...pageRecords);
           });
         }
-
-        console.log(`📋 [Reports-Driver] Successfully loaded ${allApiRecords.length} trip records`);
         
         // Transform API records to match our interface (distanceRate should be loaded by now)
         const records = allApiRecords.map((apiRecord: ApiTripRecord) => transformTripRecord(apiRecord));
-        if (DEBUG_REPORTS_DRIVER) {
-          const sampleRecord = records.find((r: TripRecord) => r.vehicle?.driverImage || r.vehicle?.backupDriverImage);
-          console.log('Trip records sample:', sampleRecord);
-          
-          // Debug expenses specifically
-          const recordWithExpenses = records.find((r: TripRecord) => (r.driverExpenses || 0) > 0 || (r.tripFee || 0) > 0);
-          if (recordWithExpenses) {
-            console.log('✅ Found record with expenses:', {
-              id: recordWithExpenses.id,
-              driverExpenses: recordWithExpenses.driverExpenses,
-              tripFee: recordWithExpenses.tripFee,
-              totalCosts: recordWithExpenses.totalCosts
-            });
-          } else {
-            console.log('❌ No records with expenses found. Sample record:', {
-              id: records[0]?.id,
-              driverExpenses: records[0]?.driverExpenses,
-              tripFee: records[0]?.tripFee,
-              totalCosts: records[0]?.totalCosts,
-              allowance: records[0]?.allowance,
-              distanceCheckFee: records[0]?.distanceCheckFee,
-              suppliesCost: records[0]?.suppliesCost,
-              fuelCost: records[0]?.fuelCost,
-              tolls: records[0]?.tolls,
-              repairCost: records[0]?.repairCost
-            });
-          }
-        }
         setTripRecords(records);
         
         if (records.length === 0) {
@@ -680,17 +738,103 @@ const totalCosts = driverExpenses + tripFee; // รวมค่าใช้จ�
         }
         
         // Apply client-side driver filter if selected
-        let filtered = records;
-        if (filters.driverName && driversList.includes(filters.driverName)) {
-          filtered = records.filter(record => record.driverName === filters.driverName);
-        }
+        let filtered: TripRecord[];
         
-        // Sort by date (ascending order - earliest to latest)
-        filtered.sort((a, b) => {
-          const dateA = new Date(a.tripDate);
-          const dateB = new Date(b.tripDate);
-          return dateA.getTime() - dateB.getTime();
-        });
+        if (filters.driverName && driversList.includes(filters.driverName)) {
+          // กรณีเลือกคนขับเฉพาะคน
+          filtered = records.filter(record => record.driverName === filters.driverName);
+          
+          // Sort by date (ascending order - earliest to latest)
+          filtered.sort((a, b) => {
+            const dateA = new Date(a.tripDate);
+            const dateB = new Date(b.tripDate);
+            return dateA.getTime() - dateB.getTime();
+          });
+          
+          // Recalculate distance cost with progressive calculation
+          let cumulativeDistance = 0;
+          filtered = filtered.map(record => {
+            const tripDistance = record.estimatedDistance || 0;
+            const progressiveDistanceCost = calculateProgressiveDistanceCost(
+              tripDistance,
+              cumulativeDistance,
+              distanceRate,
+              freeDistanceThreshold
+            );
+            
+            cumulativeDistance += tripDistance;
+            
+            // Recalculate driverExpenses and totalCosts with new distance cost
+            const driverExpenses = (record.allowance || 0) + progressiveDistanceCost + (record.suppliesCost || 0);
+            const totalCosts = driverExpenses + (record.tripFee || 0);
+            
+            return {
+              ...record,
+              calculatedDistanceCost: progressiveDistanceCost,
+              driverExpenses,
+              totalCosts
+            };
+          });
+        } else {
+          // กรณีเลือก "คนขับทั้งหมด" - คำนวณแยกตามคนขับแต่ละคน
+          
+          // 1. จัดกลุ่มตามคนขับ
+          const recordsByDriver = new Map<string, TripRecord[]>();
+          records.forEach(record => {
+            const driverName = record.driverName || 'ไม่ระบุ';
+            if (!recordsByDriver.has(driverName)) {
+              recordsByDriver.set(driverName, []);
+            }
+            recordsByDriver.get(driverName)!.push(record);
+          });
+          
+          // 2. คำนวณค่าระยะทางแยกตามคนขับแต่ละคน
+          const processedRecords: TripRecord[] = [];
+          
+          recordsByDriver.forEach((driverRecords, driverName) => {
+            // เรียงตามวันที่สำหรับแต่ละคนขับ
+            const sortedRecords = [...driverRecords].sort((a, b) => {
+              const dateA = new Date(a.tripDate);
+              const dateB = new Date(b.tripDate);
+              return dateA.getTime() - dateB.getTime();
+            });
+            
+            // คำนวณค่าระยะทางแบบสะสมสำหรับคนขับคนนี้
+            let cumulativeDistance = 0;
+            
+            const calculatedRecords = sortedRecords.map(record => {
+              const tripDistance = record.estimatedDistance || 0;
+              const progressiveDistanceCost = calculateProgressiveDistanceCost(
+                tripDistance,
+                cumulativeDistance,
+                distanceRate,
+                freeDistanceThreshold
+              );
+              
+              cumulativeDistance += tripDistance;
+              
+              // Recalculate expenses
+              const driverExpenses = (record.allowance || 0) + progressiveDistanceCost + (record.suppliesCost || 0);
+              const totalCosts = driverExpenses + (record.tripFee || 0);
+              
+              return {
+                ...record,
+                calculatedDistanceCost: progressiveDistanceCost,
+                driverExpenses,
+                totalCosts
+              };
+            });
+            
+            processedRecords.push(...calculatedRecords);
+          });
+          
+          // 3. เรียงข้อมูลทั้งหมดตามวันที่อีกครั้ง (เพื่อแสดงผล)
+          filtered = processedRecords.sort((a, b) => {
+            const dateA = new Date(a.tripDate);
+            const dateB = new Date(b.tripDate);
+            return dateA.getTime() - dateB.getTime();
+          });
+        }
         
         setFilteredRecords(filtered);
         
@@ -859,93 +1003,194 @@ const totalCosts = driverExpenses + tripFee; // รวมค่าใช้จ�
       const { default: html2canvas } = await import('html2canvas');
 
       // ใช้เทมเพลต HTML ที่ซ่อนอยู่เพื่อให้ render ภาษาไทยถูกต้อง
-      const sourceEl = minimalRef.current;
-      if (!sourceEl) {
-        showSnackbar('ไม่พบเทมเพลตสำหรับสร้าง PDF', 'error');
-        return;
+      // ยกเลิกการใช้ minimalRef และสร้าง HTML ใหม่เองเพื่อรองรับการแบ่งหน้าและ header
+      
+      // ฟังก์ชันสร้าง HTML สำหรับ Main Report (Summary Table)
+      const createMainReportHTML = (recordsSubset: TripRecord[], startIndex: number, isFirstPage: boolean) => {
+        const monthName = months.find(m => m.value === filters.month)?.label || filters.month;
+        const yearDisplay = parseInt(filters.year) + 543;
+        const driverText = filters.driverName ? `คนขับ: ${filters.driverName}` : 'คนขับ: ทั้งหมด';
+
+        const headerSection = isFirstPage ? `
+          <div style="text-align: center; margin-bottom: 10px;">
+            <h2 style="font-size: 18px; font-weight: 700; margin: 0; color: black;">รายงานคนขับรถ</h2>
+            <p style="font-size: 16px; margin: 5px 0; color: black;">${monthName} ${yearDisplay}</p>
+            <div style="
+              background-color: #f5f5f5; 
+              border: 1px solid #ccc; 
+              border-radius: 4px; 
+              padding: 4px 8px; 
+              display: inline-block; 
+              font-size: 16px; 
+              font-weight: 500;
+              margin-top: 5px;
+            ">
+              ${driverText}
+            </div>
+          </div>
+
+          <div style="margin-bottom: 10px;">
+            <table style="width: 100%; border-collapse: collapse; font-size: 14px;">
+              <thead>
+                <tr>
+                  <th style="background: #fff; font-weight: 700; text-align: center; padding: 3px;">จำนวนเที่ยว</th>
+                  <th style="background: #fff; font-weight: 700; text-align: center; padding: 3px;">ค่าเบี้ยเลี้ยงรวม (บาท)</th>
+                  <th style="background: #fff; font-weight: 700; text-align: center; padding: 3px;">ค่าพัสดุรวม (บาท)</th>
+                  <th style="background: #fff; font-weight: 700; text-align: center; padding: 3px;">ค่าระยะทางรวม (บาท)</th>
+                  <th style="background: #fff; font-weight: 700; text-align: center; padding: 3px;">ค่าเที่ยวรถรวม (บาท)</th>
+                  <th style="background: #fff; font-weight: 700; text-align: center; padding: 3px;">ค่าใช้จ่ายรวม (บาท)</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr style="text-align: center;">
+                  <td style="padding: 3px;">${summary.totalTrips}</td>
+                  <td style="padding: 3px;">${formatNumberForPDF(filteredRecords.reduce((sum, r) => sum + (r.allowance || 0), 0))}</td>
+                  <td style="padding: 3px;">${formatNumberForPDF(filteredRecords.reduce((sum, r) => sum + (r.suppliesCost || 0), 0))}</td>
+                  <td style="padding: 3px;">${formatNumberForPDF(filteredRecords.reduce((sum, r) => sum + (r.calculatedDistanceCost || 0), 0))}</td>
+                  <td style="padding: 3px;">${formatNumberForPDF(filteredRecords.reduce((sum, r) => sum + (r.tripFee || 0), 0))}</td>
+                  <td style="padding: 3px;">${formatNumberForPDF(summary.totalCosts)}</td>
+                </tr>
+              </tbody>
+            </table>
+            <div style="margin-top: 6px; padding: 4px; background-color: #f5f5f5; border-radius: 4px; text-align: center;">
+              <p style="font-size: 11px; color: #555; font-style: italic; margin: 0;">
+                * หมายเหตุ: ค่าระยะทาง คำนวณจากระยะทางรวมทั้งเดือน โดย 0-${freeDistanceThreshold.toLocaleString('th-TH')} กม.แรก ไม่คิดค่าระยะทาง และตั้งแต่ ${(freeDistanceThreshold+1).toLocaleString('th-TH')} กม. ขึ้นไป คิดค่าระยะทาง × ${distanceRate} บาท/กม.
+              </p>
+            </div>
+          </div>
+        ` : `
+          <div style="text-align: center; margin-bottom: 15px;">
+            <h3 style="font-size: 16px; font-weight: 700; margin: 0; color: black;">รายงานคนขับรถ (ต่อ)</h3>
+            <p style="font-size: 14px; margin: 5px 0; color: black;">${monthName} ${yearDisplay}</p>
+          </div>
+        `;
+
+        return `
+          <div style="font-family: 'Sarabun', Arial, sans-serif; width: 900px; background: white; padding: 20px; color: black;">
+            ${headerSection}
+            <table style="width: 100%; border-collapse: collapse; font-size: 11px;">
+              <thead>
+                <tr>
+                  <th style="border: 1px solid #000; padding: 4px; width: 8%;">วันที่เดินทาง</th>
+                  <th style="border: 1px solid #000; padding: 4px; width: 8%;">คนขับ</th>
+                  <th style="border: 1px solid #000; padding: 4px; width: 8%;">ทะเบียนรถ</th>
+                  <th style="border: 1px solid #000; padding: 4px; width: 8%;">ยี่ห้อ รุ่น</th>
+                  <th style="border: 1px solid #000; padding: 4px; width: 6%;">ประเภทรถ</th>
+                  <th style="border: 1px solid #000; padding: 4px; width: 10%;">ลูกค้า</th>
+                  <th style="border: 1px solid #000; padding: 4px; width: 6%;">ระยะทางจริง (กม.)</th>
+                  <th style="border: 1px solid #000; padding: 4px; width: 6%;">ระยะทางระบบ (กม.)</th>
+                  <th style="border: 1px solid #000; padding: 4px; width: 8%;">จ่ายคนขับ (บาท)</th>
+                  <th style="border: 1px solid #000; padding: 4px; width: 8%;">ค่าเที่ยวรถ (บาท)</th>
+                  <th style="border: 1px solid #000; padding: 4px; width: 8%;">ค่าใช้จ่ายรวม (บาท)</th>
+                  <th style="border: 1px solid #000; padding: 4px; width: 10%;">หมายเหตุ</th>
+                </tr>
+              </thead>
+              <tbody>
+                ${recordsSubset.map((record, index) => {
+                  const driverPay = (record.allowance || 0) + (record.suppliesCost || 0) + (record.calculatedDistanceCost || 0);
+                  return `
+                    <tr>
+                      <td style="border: 1px solid #000; padding: 4px; text-align: center;">${format(new Date(record.tripDate), 'dd/MM/yyyy')}</td>
+                      <td style="border: 1px solid #000; padding: 4px; text-align: center;">${record.driverName || '-'}</td>
+                      <td style="border: 1px solid #000; padding: 4px; text-align: center;">${record.vehicle?.licensePlate || '-'}</td>
+                      <td style="border: 1px solid #000; padding: 4px; text-align: center;">${record.vehicle?.brand || ''} ${record.vehicle?.model || ''}</td>
+                      <td style="border: 1px solid #000; padding: 4px; text-align: center;">${record.vehicle?.vehicleType || '-'}</td>
+                      <td style="border: 1px solid #000; padding: 4px; text-align: center;">${record.departureLocation || '-'}</td>
+                      <td style="border: 1px solid #000; padding: 4px; text-align: center;">${formatNumberForPDF(record.actualDistance || 0)}</td>
+                      <td style="border: 1px solid #000; padding: 4px; text-align: center;">${formatNumberForPDF(record.estimatedDistance || 0)}</td>
+                      <td style="border: 1px solid #000; padding: 4px; text-align: center;">${formatNumberForPDF(driverPay)}</td>
+                      <td style="border: 1px solid #000; padding: 4px; text-align: center;">${formatNumberForPDF(record.tripFee || 0)}</td>
+                      <td style="border: 1px solid #000; padding: 4px; text-align: center;">${formatNumberForPDF(record.totalCosts || 0)}</td>
+                      <td style="border: 1px solid #000; padding: 4px; text-align: center;">${record.remark || '-'}</td>
+                    </tr>
+                  `;
+                }).join('')}
+              </tbody>
+            </table>
+          </div>
+        `;
+      };
+
+      // แบ่งข้อมูลเป็นหน้าๆ
+      const mainReportChunks: Array<{ records: TripRecord[], startIndex: number, isFirstPage: boolean }> = [];
+      const records = filteredRecords;
+      
+      if (records.length > 0) {
+        let currentIndex = 0;
+        let remainingRecords = [...records];
+        
+        // หน้าแรก: Header + Summary + Table (ประมาณ 15 แถว)
+        const firstPageSize = 18; 
+        const firstChunk = remainingRecords.slice(0, Math.min(firstPageSize, remainingRecords.length));
+        mainReportChunks.push({ records: firstChunk, startIndex: currentIndex, isFirstPage: true });
+        currentIndex += firstChunk.length;
+        remainingRecords = remainingRecords.slice(firstChunk.length);
+
+        // หน้าถัดไป: Header (เล็ก) + Table (ประมาณ 25 แถว)
+        const otherPageSize = 25;
+        while (remainingRecords.length > 0) {
+          const chunk = remainingRecords.slice(0, Math.min(otherPageSize, remainingRecords.length));
+          mainReportChunks.push({ records: chunk, startIndex: currentIndex, isFirstPage: false });
+          currentIndex += chunk.length;
+          remainingRecords = remainingRecords.slice(chunk.length);
+        }
+      } else {
+         // กรณีไม่มีข้อมูล สร้างหน้าเปล่าๆ หรือหน้าที่มีแต่ header
+         mainReportChunks.push({ records: [], startIndex: 0, isFirstPage: true });
       }
 
-      // ทำให้มองเห็นชั่วคราวนอกหน้าจอ เพื่อให้ layout คำนวณได้ถูกต้อง
-      const prevVisibility = sourceEl.style.visibility;
-      const prevPosition = sourceEl.style.position;
-      const prevLeft = sourceEl.style.left;
-      const prevTop = sourceEl.style.top;
-      const prevWidth = sourceEl.style.width;
+      // สร้าง Canvas สำหรับแต่ละหน้า
+      const mainReportPages: HTMLCanvasElement[] = [];
+      for (const chunk of mainReportChunks) {
+        const html = createMainReportHTML(chunk.records, chunk.startIndex, chunk.isFirstPage);
+        const tempDiv = document.createElement('div');
+        tempDiv.innerHTML = html;
+        tempDiv.style.position = 'absolute';
+        tempDiv.style.left = '-9999px';
+        tempDiv.style.top = '0';
+        document.body.appendChild(tempDiv);
+        
+        await document.fonts.ready;
+        
+        const canvas = await html2canvas(tempDiv, {
+          scale: 2,
+          useCORS: true,
+          backgroundColor: '#ffffff',
+          allowTaint: true,
+          logging: false,
+          imageTimeout: 0,
+          removeContainer: true
+        });
+        
+        document.body.removeChild(tempDiv);
+        mainReportPages.push(canvas);
+      }
 
-      sourceEl.style.visibility = 'visible';
-      sourceEl.style.position = 'absolute';
-      sourceEl.style.left = '-9999px';
-      sourceEl.style.top = '0';
-      sourceEl.style.width = '900px';
-
-      // รอ font face
-      await document.fonts.ready;
-
-      const canvas = await html2canvas(sourceEl, {
-        scale: 2,
-        useCORS: true,
-        backgroundColor: '#ffffff',
-        allowTaint: true,
-        logging: false,
-        imageTimeout: 0,
-        removeContainer: true
-      });
-
-      // คืนค่า style เดิม
-      sourceEl.style.visibility = prevVisibility;
-      sourceEl.style.position = prevPosition;
-      sourceEl.style.left = prevLeft;
-      sourceEl.style.top = prevTop;
-      sourceEl.style.width = prevWidth;
-
-      const imgData = canvas.toDataURL('image/png');
       const doc = new jsPDF('p', 'mm', 'a4');
 
       const pageWidth = 210;
       const pageHeight = 297;
       const margin = 10;
       const contentWidth = pageWidth - margin * 2;
-      const imgHeight = (canvas.height * contentWidth) / canvas.width;
       const contentHeight = pageHeight - margin * 2 - 12; // เผื่อ footer
 
       const printDate = format(new Date(), 'dd/MM/yyyy HH:mm:ss');
 
       let currentPageNumber = 1;
-      let renderedHeight = 0;
-
-      const mainReportPages = Math.ceil(imgHeight / contentHeight);
       
+      // เพิ่มหน้า Main Report ลง PDF
+      for (let i = 0; i < mainReportPages.length; i++) {
+        if (i > 0) doc.addPage();
+        const canvas = mainReportPages[i];
+        const imgHeight = (canvas.height * contentWidth) / canvas.width;
+        doc.addImage(canvas.toDataURL('image/png'), 'PNG', margin, margin, contentWidth, imgHeight);
+        currentPageNumber++;
+      }
+
       // นับจำนวนหน้ารายละเอียดก่อน
       const selectedDriverRecords = filteredRecords.filter(record => 
         record.driverName === filters.driverName
       );
-      
-      // คำนวณจำนวนหน้ารายละเอียดโดยประมาณ (จะคำนวณแบบแม่นยำหลัง render)
-      let detailPageCount = 0;
-      
-      for (let page = 1; page <= mainReportPages; page++) {
-        if (page > 1) doc.addPage();
-
-        const sX = 0;
-        const sY = (renderedHeight / imgHeight) * canvas.height;
-        const sW = canvas.width;
-        const sH = Math.min((contentHeight / imgHeight) * canvas.height, canvas.height - sY);
-
-        const pageCanvas = document.createElement('canvas');
-        pageCanvas.width = sW;
-        pageCanvas.height = sH;
-        const pctx = pageCanvas.getContext('2d');
-        if (pctx) {
-          pctx.drawImage(canvas, sX, sY, sW, sH, 0, 0, sW, sH);
-        }
-        const pageImg = pageCanvas.toDataURL('image/png');
-        const drawHeight = (sH * contentWidth) / sW;
-
-        doc.addImage(pageImg, 'PNG', margin, margin, contentWidth, drawHeight);
-        currentPageNumber++;
-
-        renderedHeight += contentHeight;
-      }
 
       // เพิ่มหน้าที่ 2: รายละเอียดการเดินทางของคนขับ
       const detailStartPage = currentPageNumber;
@@ -980,18 +1225,10 @@ const totalCosts = driverExpenses + tripFee; // รวมค่าใช้จ�
                   <div>• จำนวนเที่ยว: ${selectedDriverRecords.length} เที่ยว</div>
                   <div>• ระยะทางจริงรวม: ${formatNumberForPDF(selectedDriverRecords.reduce((sum, r) => sum + (r.actualDistance || 0), 0))} กม.</div>
                   <div>• ระยะทางระบบรวม: ${formatNumberForPDF(selectedDriverRecords.reduce((sum, r) => sum + (r.estimatedDistance || 0), 0))} กม.</div>
-                  <div>
-                    • ค่าเบี้ยเลี้ยง: ${formatNumberForPDF(totalAllowance)} บาท</strong>
-                  </div>
-                  <div>
-                    • ค่าพัสดุนำกลับ: ${formatNumberForPDF(totalSuppliesCost)} บาท</strong>
-                  </div>
-                  <div>
-                    • ค่าระยะทาง: ${formatNumberForPDF(totalCalculatedDistanceCost)} บาท</strong>
-                  </div>
-                  <div>
-                    • ค่าเที่ยวรถ: ${formatNumberForPDF(selectedDriverRecords.reduce((sum, r) => sum + (r.tripFee || 0), 0))} บาท</strong>
-                  </div>
+                  ${totalAllowance > 0 ? `<div>• ค่าเบี้ยเลี้ยง: ${formatNumberForPDF(totalAllowance)} บาท</div>` : ''}
+                  ${totalSuppliesCost > 0 ? `<div>• ค่าพัสดุนำกลับ: ${formatNumberForPDF(totalSuppliesCost)} บาท</div>` : ''}
+                  ${totalCalculatedDistanceCost > 0 ? `<div>• ค่าระยะทาง: ${formatNumberForPDF(totalCalculatedDistanceCost)} บาท</div>` : ''}
+                  ${selectedDriverRecords.reduce((sum, r) => sum + (r.tripFee || 0), 0) > 0 ? `<div>• ค่าเที่ยวรถ: ${formatNumberForPDF(selectedDriverRecords.reduce((sum, r) => sum + (r.tripFee || 0), 0))} บาท</div>` : ''}
                 </div>
                 <div style="margin-top: 15px; font-size: 16px; color: black; font-weight: 700; text-align: center; border: 2px solid #000; padding: 10px;">
                   รวมค่าใช้จ่ายทั้งหมด: ${formatNumberForPDF(totalCosts)} บาท
@@ -999,6 +1236,18 @@ const totalCosts = driverExpenses + tripFee; // รวมค่าใช้จ�
               </div>
               
               <h3 style="font-size: 16px; font-weight: 700; margin-bottom: 12px; color: black;">รายละเอียดแต่ละเที่ยว</h3>
+            </div>
+          `;
+        };
+
+        // สร้าง table header สำหรับหน้าต่อๆ ไป
+        const createTableHeaderHTML = () => {
+          return `
+            <div style="font-family: 'Sarabun', Arial, sans-serif; width: 900px; background: white; padding: 10px 20px; color: black;">
+              <div style="text-align: center; margin-bottom: 15px;">
+                <h3 style="font-size: 16px; font-weight: 700; margin: 0; color: black;">รายละเอียดการเดินทาง - ${filters.driverName} (ต่อ)</h3>
+                <p style="font-size: 14px; margin: 5px 0; color: black;">${monthName} ${yearDisplay}</p>
+              </div>
             </div>
           `;
         };
@@ -1085,6 +1334,35 @@ const totalCosts = driverExpenses + tripFee; // รวมค่าใช้จ�
 
         const headerImgHeight = (headerCanvas.height * contentWidth) / headerCanvas.width;
 
+        // Pre-render table header สำหรับหน้าต่อไป
+        const tableHeaderHTML = createTableHeaderHTML();
+        const tableHeaderTempDiv = document.createElement('div');
+        tableHeaderTempDiv.innerHTML = tableHeaderHTML;
+        tableHeaderTempDiv.style.position = 'absolute';
+        tableHeaderTempDiv.style.left = '-9999px';
+        tableHeaderTempDiv.style.top = '0';
+        tableHeaderTempDiv.style.width = '900px';
+        tableHeaderTempDiv.style.backgroundColor = '#ffffff';
+        document.body.appendChild(tableHeaderTempDiv);
+
+        await new Promise(resolve => setTimeout(resolve, 30));
+        await document.fonts.ready;
+        
+        const tableHeaderCanvas = await html2canvas(tableHeaderTempDiv, {
+          scale: 1.5,
+          useCORS: true,
+          backgroundColor: '#ffffff',
+          allowTaint: true,
+          logging: false,
+          imageTimeout: 5000,
+          removeContainer: false,
+          width: 900
+        });
+
+        document.body.removeChild(tableHeaderTempDiv);
+
+        const tableHeaderImgHeight = (tableHeaderCanvas.height * contentWidth) / tableHeaderCanvas.width;
+
         // Pre-render แต่ละ trip block
         const tripBlocks: { record: TripRecord; index: number; canvas: HTMLCanvasElement; height: number }[] = [];
         
@@ -1129,8 +1407,9 @@ const totalCosts = driverExpenses + tripFee; // รวมค่าใช้จ�
         // วาง blocks ลง PDF
         const maxPageHeight = pageHeight - margin * 2 - 15;
         let currentY = margin;
+        let isFirstPage = true;
 
-        // วาง header ก่อน
+        // วาง header ก่อน (เฉพาะหน้าแรก)
         doc.addImage(headerCanvas.toDataURL('image/png'), 'PNG', margin, currentY, contentWidth, headerImgHeight);
         currentY += headerImgHeight;
         
@@ -1143,6 +1422,11 @@ const totalCosts = driverExpenses + tripFee; // รวมค่าใช้จ�
             currentPageNumber++;
             doc.addPage();
             currentY = margin;
+            isFirstPage = false;
+            
+            // วาง table header ในหน้าใหม่
+            doc.addImage(tableHeaderCanvas.toDataURL('image/png'), 'PNG', margin, currentY, contentWidth, tableHeaderImgHeight);
+            currentY += tableHeaderImgHeight;
           }
           
           // วาง block ลงในตำแหน่งปัจจุบัน
@@ -1239,73 +1523,88 @@ const totalCosts = driverExpenses + tripFee; // รวมค่าใช้จ�
       }, 0);
 
       // สร้าง HTML template แบบไดนามิก
-      const createDriverSummaryHTML = () => {
+      // ฟังก์ชันสร้าง table header สำหรับใช้ซ้ำในแต่ละหน้า
+      const createTableHeader = () => {
+        return `
+          <thead>
+            <tr style="background: #f5f5f5;">
+              <th style="border: 1px solid #000; padding: 8px; text-align: center; color: black;">ลำดับ</th>
+              <th style="border: 1px solid #000; padding: 8px; text-align: left; color: black;">คนขับ</th>
+              <th style="border: 1px solid #000; padding: 8px; text-align: center; color: black;">จำนวนเที่ยว</th>
+              <th style="border: 1px solid #000; padding: 8px; text-align: center; color: black;">ระยะทางจริงรวม (กม.)</th>
+              <th style="border: 1px solid #000; padding: 8px; text-align: center; color: black;">ระยะทางระบบรวม (กม.)</th>
+              <th style="border: 1px solid #000; padding: 8px; text-align: center; color: black;">ค่าเบี้ยเลี้ยงรวม (บาท)</th>
+              <th style="border: 1px solid #000; padding: 8px; text-align: center; color: black;">ค่าพัสดุนำกลับรวม (บาท)</th>
+              <th style="border: 1px solid #000; padding: 8px; text-align: center; color: black;">ค่าระยะทางรวม (บาท)</th>
+              <th style="border: 1px solid #000; padding: 8px; text-align: center; color: black;">ค่าเที่ยวรถรวม (บาท)</th>
+              <th style="border: 1px solid #000; padding: 8px; text-align: center; color: black;">ค่าใช้จ่ายรวม (บาท)</th>
+            </tr>
+          </thead>
+        `;
+      };
+
+      const createDriverSummaryHTML = (includeHeader: boolean = true, driversSubset: string[] = driverList, startIndex: number = 0) => {
+        const headerSection = includeHeader ? `
+          <div style="text-align: center; margin-bottom: 30px;">
+            <h2 style="font-size: 18px; font-weight: 700; margin: 0; color: black;">รายงานคนขับรถ - สรุปทั้งหมด</h2>
+            <p style="font-size: 16px; margin: 10px 0; color: black;">${monthName} ${yearDisplay}</p>
+          </div>
+          
+          <div style="margin-bottom: 25px;">
+            <h3 style="font-size: 16px; font-weight: 700; margin-bottom: 10px; color: black;">สรุปรวมทั้งหมด</h3>
+            <div style="display: grid; grid-template-columns: repeat(4, 1fr); gap: 15px; font-size: 14px; color: black;">
+              <span>จำนวนคนขับ: ${driverList.length} คน</span>
+              <span>จำนวนเที่ยว: ${summary.totalTrips} เที่ยว</span>
+              <span>ระยะทางจริงรวม: ${formatNumberForPDF(filteredRecords.reduce((sum, r) => sum + (r.actualDistance || 0), 0))} กม.</span>
+              <span>ระยะทางระบบรวม: ${formatNumberForPDF(filteredRecords.reduce((sum, r) => sum + (r.estimatedDistance || 0), 0))} กม.</span>
+              ${filteredRecords.reduce((sum, r) => sum + (r.allowance || 0), 0) > 0 ? `<span>ค่าเบี้ยเลี้ยงรวม: ${formatNumberForPDF(filteredRecords.reduce((sum, r) => sum + (r.allowance || 0), 0))} บาท</span>` : ''}
+              ${filteredRecords.reduce((sum, r) => sum + (r.suppliesCost || 0), 0) > 0 ? `<span>ค่าพัสดุนำกลับรวม: ${formatNumberForPDF(filteredRecords.reduce((sum, r) => sum + (r.suppliesCost || 0), 0))} บาท</span>` : ''}
+              ${filteredRecords.reduce((sum, r) => sum + (r.calculatedDistanceCost || 0), 0) > 0 ? `<span>ค่าระยะทางรวม: ${formatNumberForPDF(filteredRecords.reduce((sum, r) => sum + (r.calculatedDistanceCost || 0), 0))} บาท</span>` : ''}
+              ${filteredRecords.reduce((sum, r) => sum + (r.tripFee || 0), 0) > 0 ? `<span>ค่าเที่ยวรถรวม: ${formatNumberForPDF(filteredRecords.reduce((sum, r) => sum + (r.tripFee || 0), 0))} บาท</span>` : ''}
+              <span style="font-weight: bold;">ค่าใช้จ่ายรวมทั้งหมด: ${formatNumberForPDF(summary.totalCosts)} บาท</span>
+            </div>
+          </div>
+          
+          <div>
+            <h3 style="font-size: 16px; font-weight: 700; margin-bottom: 15px; color: black;">สรุปแต่ละคน</h3>
+          </div>
+        ` : `
+          <div style="text-align: center; margin-bottom: 20px;">
+            <h3 style="font-size: 16px; font-weight: 700; margin: 0; color: black;">รายงานคนขับรถ - สรุปทั้งหมด (ต่อ)</h3>
+            <p style="font-size: 14px; margin: 8px 0; color: black;">${monthName} ${yearDisplay}</p>
+          </div>
+        `;
+
         return `
           <div style="font-family: 'Sarabun', Arial, sans-serif; width: 1200px; background: white; padding: 20px; color: black;">
-            <div style="text-align: center; margin-bottom: 30px;">
-              <h2 style="font-size: 18px; font-weight: 700; margin: 0; color: black;">รายงานคนขับรถ - สรุปทั้งหมด</h2>
-              <p style="font-size: 16px; margin: 10px 0; color: black;">${monthName} ${yearDisplay}</p>
-            </div>
-            
-            <div style="margin-bottom: 25px;">
-              <h3 style="font-size: 16px; font-weight: 700; margin-bottom: 10px; color: black;">สรุปรวมทั้งหมด</h3>
-              <div style="display: grid; grid-template-columns: repeat(4, 1fr); gap: 15px; font-size: 14px; color: black;">
-                <span>จำนวนคนขับ: ${driverList.length} คน</span>
-                <span>จำนวนเที่ยว: ${summary.totalTrips} เที่ยว</span>
-                <span>ระยะทางจริงรวม: ${formatNumberForPDF(filteredRecords.reduce((sum, r) => sum + (r.actualDistance || 0), 0))} กม.</span>
-                <span>ระยะทางระบบรวม: ${formatNumberForPDF(filteredRecords.reduce((sum, r) => sum + (r.estimatedDistance || 0), 0))} กม.</span>
-                <span>ค่าเบี้ยเลี้ยงรวม: ${formatNumberForPDF(filteredRecords.reduce((sum, r) => sum + (r.allowance || 0), 0))} บาท</span>
-                <span>ค่าพัสดุนำกลับรวม: ${formatNumberForPDF(filteredRecords.reduce((sum, r) => sum + (r.suppliesCost || 0), 0))} บาท</span>
-                <span>ค่าระยะทางรวม: ${formatNumberForPDF(filteredRecords.reduce((sum, r) => sum + (r.calculatedDistanceCost || 0), 0))} บาท</span>
-                <span>ค่าเที่ยวรถรวม: ${formatNumberForPDF(filteredRecords.reduce((sum, r) => sum + (r.tripFee || 0), 0))} บาท</span>
-                <span style="font-weight: bold;">ค่าใช้จ่ายรวมทั้งหมด: ${formatNumberForPDF(summary.totalCosts)} บาท</span>
-              </div>
-            </div>
-
-            <div>
-              <h3 style="font-size: 16px; font-weight: 700; margin-bottom: 15px; color: black;">สรุปแต่ละคน</h3>
-              <table style="width: 100%; border-collapse: collapse; font-size: 12px;">
-                <thead>
-                  <tr style="background: #f5f5f5;">
-                    <th style="border: 1px solid #000; padding: 8px; text-align: center; color: black;">ลำดับ</th>
-                    <th style="border: 1px solid #000; padding: 8px; text-align: left; color: black;">คนขับ</th>
-                    <th style="border: 1px solid #000; padding: 8px; text-align: center; color: black;">จำนวนเที่ยว</th>
-                    <th style="border: 1px solid #000; padding: 8px; text-align: center; color: black;">ระยะทางจริงรวม (กม.)</th>
-                    <th style="border: 1px solid #000; padding: 8px; text-align: center; color: black;">ระยะทางระบบรวม (กม.)</th>
-                    <th style="border: 1px solid #000; padding: 8px; text-align: center; color: black;">ค่าเบี้ยเลี้ยงรวม (บาท)</th>
-                    <th style="border: 1px solid #000; padding: 8px; text-align: center; color: black;">ค่าพัสดุนำกลับรวม (บาท)</th>
-                    <th style="border: 1px solid #000; padding: 8px; text-align: center; color: black;">ค่าระยะทางรวม (บาท)</th>
-                    <th style="border: 1px solid #000; padding: 8px; text-align: center; color: black;">ค่าเที่ยวรถรวม (บาท)</th>
-                    <th style="border: 1px solid #000; padding: 8px; text-align: center; color: black;">ค่าใช้จ่ายรวม (บาท)</th>
-                    
-                  </tr>
-                </thead>
-                <tbody>
-                  ${driverList.map((driverName, index) => {
-                    const records = driverGroups[driverName];
-                    const totalDistance = records.reduce((sum, r) => sum + (r.actualDistance || r.estimatedDistance || 0), 0);
-                    const totalFuel = records.reduce((sum, r) => sum + (r.fuelAmount || 0), 0);
-                    const totalCosts = records.reduce((sum, r) => sum + (r.totalCosts || 0), 0);
-                    const avgDistance = totalDistance / records.length;
-                    return `
-                      <tr>
-                        <td style="border: 1px solid #000; padding: 6px; text-align: center; color: black;">${index + 1}</td>
-                        <td style="border: 1px solid #000; padding: 6px; color: black;">${driverName}</td>
-                        <td style="border: 1px solid #000; padding: 6px; text-align: center; color: black;">${records.length}</td>
-                        <td style="border: 1px solid #000; padding: 6px; text-align: center; color: black;">${formatNumberForPDF(records.reduce((sum, r) => sum + (r.actualDistance || 0), 0))}</td>
-                        <td style="border: 1px solid #000; padding: 6px; text-align: center; color: black;">${formatNumberForPDF(records.reduce((sum, r) => sum + (r.estimatedDistance || 0), 0))}</td>
-                        <td style="border: 1px solid #000; padding: 6px; text-align: center; color: black;">${formatNumberForPDF(records.reduce((sum, r) => sum + (r.allowance || 0), 0))}</td>
-                        <td style="border: 1px solid #000; padding: 6px; text-align: center; color: black;">${formatNumberForPDF(records.reduce((sum, r) => sum + (r.suppliesCost || 0), 0))}</td>
-                        <td style="border: 1px solid #000; padding: 6px; text-align: center; color: black;">${formatNumberForPDF(records.reduce((sum, r) => sum + (r.calculatedDistanceCost || 0), 0))}</td>
-                        <td style="border: 1px solid #000; padding: 6px; text-align: center; color: black;">${formatNumberForPDF(records.reduce((sum, r) => sum + (r.tripFee || 0), 0))}</td>
-                        <td style="border: 1px solid #000; padding: 6px; text-align: center; color: black; font-weight: bold;">${formatNumberForPDF(totalCosts)}</td>
-                        
-                      </tr>
-                    `;
-                  }).join('')}
-                </tbody>
-              </table>
-            </div>
+            ${headerSection}
+            <table style="width: 100%; border-collapse: collapse; font-size: 12px;">
+              ${createTableHeader()}
+              <tbody>
+                ${driversSubset.map((driverName, subIndex) => {
+                  const index = startIndex + subIndex;
+                  const records = driverGroups[driverName];
+                  const totalDistance = records.reduce((sum, r) => sum + (r.actualDistance || r.estimatedDistance || 0), 0);
+                  const totalFuel = records.reduce((sum, r) => sum + (r.fuelAmount || 0), 0);
+                  const totalCosts = records.reduce((sum, r) => sum + (r.totalCosts || 0), 0);
+                  const avgDistance = totalDistance / records.length;
+                  return `
+                    <tr>
+                      <td style="border: 1px solid #000; padding: 6px; text-align: center; color: black;">${index + 1}</td>
+                      <td style="border: 1px solid #000; padding: 6px; color: black;">${driverName}</td>
+                      <td style="border: 1px solid #000; padding: 6px; text-align: center; color: black;">${records.length}</td>
+                      <td style="border: 1px solid #000; padding: 6px; text-align: center; color: black;">${formatNumberForPDF(records.reduce((sum, r) => sum + (r.actualDistance || 0), 0))}</td>
+                      <td style="border: 1px solid #000; padding: 6px; text-align: center; color: black;">${formatNumberForPDF(records.reduce((sum, r) => sum + (r.estimatedDistance || 0), 0))}</td>
+                      <td style="border: 1px solid #000; padding: 6px; text-align: center; color: black;">${formatNumberForPDF(records.reduce((sum, r) => sum + (r.allowance || 0), 0))}</td>
+                      <td style="border: 1px solid #000; padding: 6px; text-align: center; color: black;">${formatNumberForPDF(records.reduce((sum, r) => sum + (r.suppliesCost || 0), 0))}</td>
+                      <td style="border: 1px solid #000; padding: 6px; text-align: center; color: black;">${formatNumberForPDF(records.reduce((sum, r) => sum + (r.calculatedDistanceCost || 0), 0))}</td>
+                      <td style="border: 1px solid #000; padding: 6px; text-align: center; color: black;">${formatNumberForPDF(records.reduce((sum, r) => sum + (r.tripFee || 0), 0))}</td>
+                      <td style="border: 1px solid #000; padding: 6px; text-align: center; color: black; font-weight: bold;">${formatNumberForPDF(totalCosts)}</td>
+                    </tr>
+                  `;
+                }).join('')}
+              </tbody>
+            </table>
           </div>
         `;
       };
@@ -1313,84 +1612,135 @@ const totalCosts = driverExpenses + tripFee; // รวมค่าใช้จ�
       // สร้าง PDF
       const doc = new jsPDF('p', 'mm', 'a4');
 
-      // หน้าสรุป
-      const summaryHTML = createDriverSummaryHTML();
-      const tempDiv = document.createElement('div');
-      tempDiv.innerHTML = summaryHTML;
-      tempDiv.style.position = 'absolute';
-      tempDiv.style.left = '-9999px';
-      tempDiv.style.top = '0';
-      document.body.appendChild(tempDiv);
-
-      await document.fonts.ready;
-      
-      const summaryCanvas = await html2canvas(tempDiv, {
-        scale: 2,
-        useCORS: true,
-        backgroundColor: '#ffffff',
-        allowTaint: true,
-        logging: false,
-        imageTimeout: 0,
-        removeContainer: true
-      });
-
-      document.body.removeChild(tempDiv);
-
       const pageWidth = 210;
       const pageHeight = 297;
       const margin = 10;
       const contentWidth = pageWidth - margin * 2;
-      const imgHeight = (summaryCanvas.height * contentWidth) / summaryCanvas.width;
+      const contentHeight = pageHeight - margin * 2 - 15; // เผื่อ footer
       
       const printDate = format(new Date(), 'dd/MM/yyyy HH:mm:ss');
       
       let currentPageNumber = 1;
 
-      // หน้าที่ 1: Summary page
-      doc.addImage(summaryCanvas.toDataURL('image/png'), 'PNG', margin, margin, contentWidth, imgHeight);
+      // แบ่งคนขับออกเป็น chunks เพื่อให้พอดีแต่ละหน้า
+      // ใช้วิธี dynamic rendering โดยวัดความสูงจริง
+      const driverChunks: Array<{ drivers: string[], startIndex: number, isFirstPage: boolean }> = [];
+      
+      // ถ้ามีคนขับไม่เกิน 10 คน ให้ใส่หน้าเดียว
+      if (driverList.length <= 10) {
+        driverChunks.push({ drivers: driverList, startIndex: 0, isFirstPage: true });
+      } else {
+        // แบ่งเป็นหลายหน้า: หน้าแรก 8 คน, หน้าถัดไป 15 คนต่อหน้า
+        let remainingDrivers = [...driverList];
+        let currentIndex = 0;
+        
+        // Chunk แรก (หน้าที่มี header + summary)
+        const firstChunk = remainingDrivers.slice(0, Math.min(8, remainingDrivers.length));
+        driverChunks.push({ drivers: firstChunk, startIndex: currentIndex, isFirstPage: true });
+        currentIndex += firstChunk.length;
+        remainingDrivers = remainingDrivers.slice(firstChunk.length);
+        
+        // Chunks ที่เหลือ (หน้าถัดไปมีเฉพาะตารางและ header)
+        while (remainingDrivers.length > 0) {
+          const chunk = remainingDrivers.slice(0, Math.min(15, remainingDrivers.length));
+          driverChunks.push({ drivers: chunk, startIndex: currentIndex, isFirstPage: false });
+          currentIndex += chunk.length;
+          remainingDrivers = remainingDrivers.slice(chunk.length);
+        }
+      }
+      
+      // สร้างแต่ละหน้า
+      const summaryPages: HTMLCanvasElement[] = [];
+      
+      for (const chunk of driverChunks) {
+        const summaryHTML = createDriverSummaryHTML(chunk.isFirstPage, chunk.drivers, chunk.startIndex);
+        const tempDiv = document.createElement('div');
+        tempDiv.innerHTML = summaryHTML;
+        tempDiv.style.position = 'absolute';
+        tempDiv.style.left = '-9999px';
+        tempDiv.style.top = '0';
+        document.body.appendChild(tempDiv);
 
-      // หน้าที่ 2+: รายละเอียดการเดินทางของแต่ละคนขับ (แบ่งหลายหน้าอัตโนมัติ)
+        await document.fonts.ready;
+        
+        const summaryCanvas = await html2canvas(tempDiv, {
+          scale: 2,
+          useCORS: true,
+          backgroundColor: '#ffffff',
+          allowTaint: true,
+          logging: false,
+          imageTimeout: 0,
+          removeContainer: true
+        });
+
+        document.body.removeChild(tempDiv);
+        summaryPages.push(summaryCanvas);
+      }
+
+      // เพิ่มหน้าสรุปทั้งหมดลง PDF
+      for (let i = 0; i < summaryPages.length; i++) {
+        if (i > 0) doc.addPage();
+        
+        const canvas = summaryPages[i];
+        const imgHeight = (canvas.height * contentWidth) / canvas.width;
+        doc.addImage(canvas.toDataURL('image/png'), 'PNG', margin, margin, contentWidth, imgHeight);
+      }
+
+      const summaryPagesCount = summaryPages.length;
+
+      // หน้าที่ N+: รายละเอียดการเดินทางของแต่ละคนขับ (แบ่งหลายหน้าอัตโนมัติ)
       
       // สร้างเนื้อหารายละเอียดสำหรับคนขับแต่ละคน
-      const createSingleDriverDetailHTML = (driverName: string, driverIndex: number, includeHeader: boolean = false) => {
-        const records = driverGroups[driverName];
-        const totalCosts = records.reduce((sum, r) => sum + (r.totalCosts || 0), 0);
-        const totalAllowance = records.reduce((sum, r) => sum + (r.allowance || 0), 0);
-        const totalCalculatedDistanceCost = records.reduce((sum, r) => sum + (r.calculatedDistanceCost || 0), 0);
-        const totalFuelCost = records.reduce((sum, r) => sum + (r.fuelCost || 0), 0);
-        const totalTolls = records.reduce((sum, r) => sum + (r.tolls || 0), 0);
-        const totalDistanceCheckFee = records.reduce((sum, r) => sum + (r.distanceCheckFee || 0), 0);
-        const totalSuppliesCost = records.reduce((sum, r) => sum + (r.suppliesCost || 0), 0);
-        const totalRepairCost = records.reduce((sum, r) => sum + (r.repairCost || 0), 0);
+      const createSingleDriverDetailHTML = (
+        driverName: string, 
+        driverIndex: number, 
+        recordsSubset: TripRecord[],
+        isFirstChunk: boolean,
+        includeMainHeader: boolean
+      ) => {
+        const allRecords = driverGroups[driverName];
+        const totalCosts = allRecords.reduce((sum, r) => sum + (r.totalCosts || 0), 0);
+        const totalAllowance = allRecords.reduce((sum, r) => sum + (r.allowance || 0), 0);
+        const totalCalculatedDistanceCost = allRecords.reduce((sum, r) => sum + (r.calculatedDistanceCost || 0), 0);
+        const totalSuppliesCost = allRecords.reduce((sum, r) => sum + (r.suppliesCost || 0), 0);
+        const totalTripFee = allRecords.reduce((sum, r) => sum + (r.tripFee || 0), 0);
 
-        const headerHTML = includeHeader ? `
+        const headerHTML = includeMainHeader ? `
           <div style="text-align: center; margin-bottom: 20px;">
             <h2 style="font-size: 16px; font-weight: 700; margin: 0; color: black;">รายงานคนขับรถ - รายละเอียดการเดินทาง</h2>
             <p style="font-size: 14px; margin: 8px 0; color: black;">${monthName} ${yearDisplay}</p>
           </div>
         ` : '';
 
-        return `
-          <div style="font-family: 'Sarabun', Arial, sans-serif; width: 900px; background: white; padding: 20px; color: black;">
-            ${headerHTML}
-            <div style="margin-bottom: 12px;">
+        const driverHeaderHTML = isFirstChunk ? `
               <h3 style="font-size: 14px; font-weight: 700; margin-bottom: 8px; color: black; border-bottom: 1px solid #000; padding-bottom: 4px;">
                 ${driverIndex + 1}. ${driverName}
               </h3>
               
               <div style="margin-bottom: 8px; padding: 8px; background-color: #f5f5f5; border-radius: 3px;">
                 <div style="display: grid; grid-template-columns: repeat(5, 1fr); gap: 8px; font-size: 12px; color: black;">
-                  <div>จำนวนเที่ยว: ${records.length} เที่ยว</div>
+                  <div>จำนวนเที่ยว: ${allRecords.length} เที่ยว</div>
                   <div>ค่าเบี้ยเลี้ยง: ${formatNumberForPDF(totalAllowance)} บาท</div>
                   <div>ค่าพัสดุนำกลับ: ${formatNumberForPDF(totalSuppliesCost)} บาท</div>
                   <div>ค่าระยะทาง: ${formatNumberForPDF(totalCalculatedDistanceCost)} บาท</div>
-                  <div>ค่าเที่ยวรถ: ${formatNumberForPDF(records.reduce((sum, r) => sum + (r.tripFee || 0), 0))} บาท</div>
+                  <div>ค่าเที่ยวรถ: ${formatNumberForPDF(totalTripFee)} บาท</div>
                   <div style="grid-column: span 5; font-weight: bold; border-top: 1px solid #ccc; padding-top: 4px; margin-top: 4px;">รวมทั้งหมด: ${formatNumberForPDF(totalCosts)} บาท</div>
                 </div>
               </div>
+        ` : `
+              <h3 style="font-size: 14px; font-weight: 700; margin-bottom: 8px; color: black; border-bottom: 1px solid #000; padding-bottom: 4px;">
+                ${driverIndex + 1}. ${driverName} (ต่อ)
+              </h3>
+        `;
+
+        return `
+          <div style="font-family: 'Sarabun', Arial, sans-serif; width: 900px; background: white; padding: 20px; color: black;">
+            ${headerHTML}
+            <div style="margin-bottom: 12px;">
+              ${driverHeaderHTML}
               
               <ul style="list-style: none; padding: 0; margin: 0; font-size: 9px; color: black;">
-                ${records.map((record, index) => {
+                ${recordsSubset.map((record, index) => {
                   const tripDate = new Date(record.tripDate);
                   const departureDate = `${tripDate.getDate().toString().padStart(2, '0')}/${(tripDate.getMonth() + 1).toString().padStart(2, '0')}/${tripDate.getFullYear() + 543}`;
                   
@@ -1436,49 +1786,68 @@ const totalCosts = driverExpenses + tripFee; // รวมค่าใช้จ�
       
       for (let i = 0; i < driverList.length; i++) {
         const driverName = driverList[i];
-        const includeHeader = (i === 0); // ใส่ header เฉพาะคนขับคนแรก
+        const allRecords = driverGroups[driverName];
         
-        const driverHTML = createSingleDriverDetailHTML(driverName, i, includeHeader);
-        const tempDiv = document.createElement('div');
-        tempDiv.innerHTML = driverHTML;
-        tempDiv.style.position = 'absolute';
-        tempDiv.style.left = '-9999px';
-        tempDiv.style.top = '0';
-        tempDiv.style.width = '900px';
-        tempDiv.style.backgroundColor = '#ffffff';
-        document.body.appendChild(tempDiv);
-
-        await new Promise(resolve => setTimeout(resolve, 30));
-        await document.fonts.ready;
+        let remainingRecords = [...allRecords];
+        let chunkIndex = 0;
         
-        const canvas = await html2canvas(tempDiv, {
-          scale: 1.5,
-          useCORS: true,
-          backgroundColor: '#ffffff',
-          allowTaint: true,
-          logging: false,
-          imageTimeout: 5000,
-          removeContainer: false,
-          width: 900
-        });
-
-        document.body.removeChild(tempDiv);
-
-        const imgHeight = (canvas.height * contentWidth) / canvas.width;
+        // กำหนดจำนวนรายการต่อหน้า
+        const firstChunkSize = 9; // หน้าแรกมี summary box (ลดลงเพื่อป้องกันล้นหน้า)
+        const otherChunkSize = 11; // หน้าต่อๆ ไปมีแต่รายการ (ลดลงเพื่อป้องกันล้นหน้า)
         
-        driverBlocks.push({
-          driverName,
-          driverIndex: i,
-          canvas,
-          height: imgHeight
-        });
+        while (remainingRecords.length > 0) {
+          const isFirstChunk = (chunkIndex === 0);
+          const size = isFirstChunk ? firstChunkSize : otherChunkSize;
+          const chunk = remainingRecords.slice(0, size);
+          remainingRecords = remainingRecords.slice(size);
+          
+          const includeMainHeader = (i === 0 && isFirstChunk);
+          
+          const driverHTML = createSingleDriverDetailHTML(driverName, i, chunk, isFirstChunk, includeMainHeader);
+          
+          const tempDiv = document.createElement('div');
+          tempDiv.innerHTML = driverHTML;
+          tempDiv.style.position = 'absolute';
+          tempDiv.style.left = '-9999px';
+          tempDiv.style.top = '0';
+          tempDiv.style.width = '900px';
+          tempDiv.style.backgroundColor = '#ffffff';
+          document.body.appendChild(tempDiv);
+
+          await new Promise(resolve => setTimeout(resolve, 30));
+          await document.fonts.ready;
+          
+          const canvas = await html2canvas(tempDiv, {
+            scale: 1.5,
+            useCORS: true,
+            backgroundColor: '#ffffff',
+            allowTaint: true,
+            logging: false,
+            imageTimeout: 5000,
+            removeContainer: false,
+            width: 900
+          });
+
+          document.body.removeChild(tempDiv);
+
+          const imgHeight = (canvas.height * contentWidth) / canvas.width;
+          
+          driverBlocks.push({
+            driverName,
+            driverIndex: i,
+            canvas,
+            height: imgHeight
+          });
+          
+          chunkIndex++;
+        }
       }
       
       // คำนวณ layout ของแต่ละหน้าก่อน (เหมือน all-vehicle)
       const pdfPages: Array<{ blocks: typeof driverBlocks; startY: number }> = [];
       let currentPdfY = margin;
       let currentPageBlocks: typeof driverBlocks = [];
-      const maxContentHeight = pageHeight - margin * 2 - 15;
+      const maxContentHeight = pageHeight - margin * 2 - 25; // เพิ่มพื้นที่ด้านล่างป้องกันทับเลขหน้า
       
       for (let i = 0; i < driverBlocks.length; i++) {
         const block = driverBlocks[i];
@@ -1505,13 +1874,17 @@ const totalCosts = driverExpenses + tripFee; // รวมค่าใช้จ�
       
       // สร้าง PDF โดยรู้จำนวนหน้าทั้งหมดตั้งแต่ต้น
       const totalDetailPages = pdfPages.length;
-      const totalPages = 1 + totalDetailPages; // 1 summary page + detail pages
+      const totalPages = summaryPagesCount + totalDetailPages; // summary pages + detail pages
       
-      // เขียน footer หน้า summary ก่อน
-      doc.setPage(1);
-      doc.setFontSize(8);
-      doc.text(`Print Date: ${printDate}`, margin, pageHeight - 6);
-      doc.text(`Page 1/${totalPages}`, pageWidth - margin, pageHeight - 6, { align: 'right' });
+      // เขียน footer หน้า summary ทั้งหมด
+      for (let i = 0; i < summaryPagesCount; i++) {
+        doc.setPage(i + 1);
+        doc.setFontSize(8);
+        doc.text(`Print Date: ${printDate}`, margin, pageHeight - 6);
+        doc.text(`Page ${i + 1}/${totalPages}`, pageWidth - margin, pageHeight - 6, { align: 'right' });
+      }
+      
+      currentPageNumber = summaryPagesCount;
       
       // สร้างหน้ารายละเอียด
       for (let pageIdx = 0; pageIdx < pdfPages.length; pageIdx++) {
@@ -1597,7 +1970,6 @@ const totalCosts = driverExpenses + tripFee; // รวมค่าใช้จ�
   // Helper function to get driver image based on driver name, driver type and vehicle data
   const getDriverImageByName = (driverName: string, driverType: string, vehicle: Vehicle) => {
     if (!driverName || !vehicle) {
-      if (DEBUG_REPORTS_DRIVER) console.log(`Missing driver/vehicle data`, { driverName, hasVehicle: !!vehicle });
       return `https://ui-avatars.com/api/?name=${encodeURIComponent(driverName || 'Unknown')}&background=607d8b&color=fff&size=128`;
     }
 
@@ -1607,7 +1979,6 @@ const totalCosts = driverExpenses + tripFee; // รวมค่าใช้จ�
       const enriched = vehicles.find(v => v.id === vehicle.id);
       if (enriched) {
         workingVehicle = { ...enriched };
-        if (DEBUG_REPORTS_DRIVER) console.log('Enriched vehicle data', { id: vehicle.id });
       }
     }
 
@@ -1620,10 +1991,6 @@ const totalCosts = driverExpenses + tripFee; // รวมค่าใช้จ�
     };
     if (workingVehicle.driverImage) workingVehicle.driverImage = normalizePath(workingVehicle.driverImage);
     if (workingVehicle.backupDriverImage) workingVehicle.backupDriverImage = normalizePath(workingVehicle.backupDriverImage);
-
-    if (DEBUG_REPORTS_DRIVER) {
-      console.log(`Driver image lookup`, { driverName, driverType, vehicleId: workingVehicle.id });
-    }
     
     // Strategy 1: Use driver_type to guide the search with new driver relations
     if (driverType === 'main' || driverType === 'primary') {
@@ -1631,7 +1998,6 @@ const totalCosts = driverExpenses + tripFee; // รวมค่าใช้จ�
       const mainDriverData = workingVehicle.mainDriver;
       if (mainDriverData && mainDriverData.driverName === driverName) {
         const imagePath = mainDriverData.driverImage;
-        if (DEBUG_REPORTS_DRIVER) console.log(`Main driver match (relation)`, { driverName, imagePath });
         
         if (imagePath && imagePath !== 'undefined' && imagePath !== 'null') {
           if (!imagePath.startsWith('/uploads/') && !imagePath.startsWith('http')) {
@@ -1639,7 +2005,6 @@ const totalCosts = driverExpenses + tripFee; // รวมค่าใช้จ�
           }
           return imagePath;
         } else {
-          if (DEBUG_REPORTS_DRIVER) console.log(`Main driver no image placeholder`, { driverName });
           return `https://ui-avatars.com/api/?name=${encodeURIComponent(driverName)}&background=0d47a1&color=fff&size=128`;
         }
       }
@@ -1647,7 +2012,6 @@ const totalCosts = driverExpenses + tripFee; // รวมค่าใช้จ�
       // Fallback to legacy field
       if (workingVehicle.driverName === driverName) {
         const imagePath = workingVehicle.driverImage;
-        if (DEBUG_REPORTS_DRIVER) console.log(`Main driver match (legacy)`, { driverName, imagePath });
         
         if (imagePath && imagePath !== 'undefined' && imagePath !== 'null') {
           if (!imagePath.startsWith('/uploads/') && !imagePath.startsWith('http')) {
@@ -1655,7 +2019,6 @@ const totalCosts = driverExpenses + tripFee; // รวมค่าใช้จ�
           }
           return imagePath;
         } else {
-          if (DEBUG_REPORTS_DRIVER) console.log(`Main driver no image placeholder`, { driverName });
           return `https://ui-avatars.com/api/?name=${encodeURIComponent(driverName)}&background=0d47a1&color=fff&size=128`;
         }
       }
@@ -1664,7 +2027,6 @@ const totalCosts = driverExpenses + tripFee; // รวมค่าใช้จ�
       const backupDriverData = workingVehicle.backupDriver;
       if (backupDriverData && backupDriverData.driverName === driverName) {
         const imagePath = backupDriverData.driverImage;
-        if (DEBUG_REPORTS_DRIVER) console.log(`Backup driver match (relation)`, { driverName, imagePath });
         
         if (imagePath && imagePath !== 'undefined' && imagePath !== 'null') {
           if (!imagePath.startsWith('/uploads/') && !imagePath.startsWith('http')) {
@@ -1672,7 +2034,6 @@ const totalCosts = driverExpenses + tripFee; // รวมค่าใช้จ�
           }
           return imagePath;
         } else {
-          if (DEBUG_REPORTS_DRIVER) console.log(`Backup driver no image placeholder`, { driverName });
           return `https://ui-avatars.com/api/?name=${encodeURIComponent(driverName)}&background=f57c00&color=fff&size=128`;
         }
       }
@@ -1680,7 +2041,6 @@ const totalCosts = driverExpenses + tripFee; // รวมค่าใช้จ�
       // Fallback to legacy field
       if (workingVehicle.backupDriverName === driverName) {
         const imagePath = workingVehicle.backupDriverImage;
-        if (DEBUG_REPORTS_DRIVER) console.log(`Backup driver match (legacy)`, { driverName, imagePath });
         
         if (imagePath && imagePath !== 'undefined' && imagePath !== 'null') {
           if (!imagePath.startsWith('/uploads/') && !imagePath.startsWith('http')) {
@@ -1688,7 +2048,6 @@ const totalCosts = driverExpenses + tripFee; // รวมค่าใช้จ�
           }
           return imagePath;
         } else {
-          if (DEBUG_REPORTS_DRIVER) console.log(`Backup driver no image placeholder`, { driverName });
           return `https://ui-avatars.com/api/?name=${encodeURIComponent(driverName)}&background=f57c00&color=fff&size=128`;
         }
       }
@@ -1699,7 +2058,6 @@ const totalCosts = driverExpenses + tripFee; // รวมค่าใช้จ�
     const mainDriverData = workingVehicle.mainDriver;
     if (mainDriverData && mainDriverData.driverName === driverName) {
       const imagePath = mainDriverData.driverImage;
-      if (DEBUG_REPORTS_DRIVER) console.log(`Main driver match (relation fallback)`, { driverName, imagePath });
       
       if (imagePath && imagePath !== 'undefined' && imagePath !== 'null') {
         if (!imagePath.startsWith('/uploads/') && !imagePath.startsWith('http')) {
@@ -1707,7 +2065,6 @@ const totalCosts = driverExpenses + tripFee; // รวมค่าใช้จ�
         }
         return imagePath;
       } else {
-        if (DEBUG_REPORTS_DRIVER) console.log(`Main driver no image fallback placeholder`, { driverName });
         return `https://ui-avatars.com/api/?name=${encodeURIComponent(driverName)}&background=0d47a1&color=fff&size=128`;
       }
     }
@@ -1716,7 +2073,6 @@ const totalCosts = driverExpenses + tripFee; // รวมค่าใช้จ�
     const backupDriverData = workingVehicle.backupDriver;
     if (backupDriverData && backupDriverData.driverName === driverName) {
       const imagePath = backupDriverData.driverImage;
-      if (DEBUG_REPORTS_DRIVER) console.log(`Backup driver match (relation fallback)`, { driverName, imagePath });
       
       if (imagePath && imagePath !== 'undefined' && imagePath !== 'null') {
         if (!imagePath.startsWith('/uploads/') && !imagePath.startsWith('http')) {
@@ -1724,7 +2080,6 @@ const totalCosts = driverExpenses + tripFee; // รวมค่าใช้จ�
         }
         return imagePath;
       } else {
-        if (DEBUG_REPORTS_DRIVER) console.log(`Backup driver no image fallback placeholder`, { driverName });
         return `https://ui-avatars.com/api/?name=${encodeURIComponent(driverName)}&background=f57c00&color=fff&size=128`;
       }
     }
@@ -1733,7 +2088,6 @@ const totalCosts = driverExpenses + tripFee; // รวมค่าใช้จ�
     // Check main driver
     if (workingVehicle.driverName === driverName) {
       const imagePath = workingVehicle.driverImage;
-      if (DEBUG_REPORTS_DRIVER) console.log(`Main driver match (legacy fallback)`, { driverName, imagePath });
       
       if (imagePath && imagePath !== 'undefined' && imagePath !== 'null') {
         if (!imagePath.startsWith('/uploads/') && !imagePath.startsWith('http')) {
@@ -1741,7 +2095,6 @@ const totalCosts = driverExpenses + tripFee; // รวมค่าใช้จ�
         }
         return imagePath;
       } else {
-        if (DEBUG_REPORTS_DRIVER) console.log(`Main driver no image fallback placeholder`, { driverName });
         return `https://ui-avatars.com/api/?name=${encodeURIComponent(driverName)}&background=0d47a1&color=fff&size=128`;
       }
     }
@@ -1749,7 +2102,6 @@ const totalCosts = driverExpenses + tripFee; // รวมค่าใช้จ�
     // Check backup driver
     if (workingVehicle.backupDriverName === driverName) {
       const imagePath = workingVehicle.backupDriverImage;
-      if (DEBUG_REPORTS_DRIVER) console.log(`Backup driver match (legacy fallback)`, { driverName, imagePath });
       
       if (imagePath && imagePath !== 'undefined' && imagePath !== 'null') {
         if (!imagePath.startsWith('/uploads/') && !imagePath.startsWith('http')) {
@@ -1757,7 +2109,6 @@ const totalCosts = driverExpenses + tripFee; // รวมค่าใช้จ�
         }
         return imagePath;
       } else {
-  if (DEBUG_REPORTS_DRIVER) console.log(`Backup driver no image fallback placeholder`, { driverName });
         return `https://ui-avatars.com/api/?name=${encodeURIComponent(driverName)}&background=f57c00&color=fff&size=128`;
       }
     }
@@ -1765,18 +2116,15 @@ const totalCosts = driverExpenses + tripFee; // รวมค่าใช้จ�
     // Secondary check: trip_records.driver_name = vehicles.backupDriverName (actual field used)
     if (workingVehicle.backupDriverName === driverName) {
       const imagePath = workingVehicle.backupDriverImage;
-      if (DEBUG_REPORTS_DRIVER) console.log(`Backup driver match (secondary check)`, { driverName });
       
       if (imagePath && imagePath !== 'undefined' && imagePath !== 'null') {
         // Ensure the path starts with /uploads/driver if it's just a filename
         if (!imagePath.startsWith('/uploads/') && !imagePath.startsWith('http')) {
           const fullPath = `/uploads/driver/${imagePath}`;
-          console.log(`🔄 Converting filename to full path: ${imagePath} → ${fullPath}`);
           return fullPath;
         }
         return imagePath;
       } else {
-  if (DEBUG_REPORTS_DRIVER) console.log(`Backup secondary no image placeholder`, { driverName });
         return `https://ui-avatars.com/api/?name=${encodeURIComponent(driverName)}&background=f57c00&color=fff&size=128`;
       }
     }
@@ -1786,7 +2134,6 @@ const totalCosts = driverExpenses + tripFee; // รวมค่าใช้จ�
     
     // Check main driver with fuzzy matching
     if (workingVehicle.driverName && workingVehicle.driverName.trim().toLowerCase().includes(normalizedSearchName)) {
-  if (DEBUG_REPORTS_DRIVER) console.log(`Partial main match`, { driverName, target: workingVehicle.driverName });
       const imagePath = workingVehicle.driverImage;
       if (imagePath && imagePath !== 'undefined' && imagePath !== 'null') {
         if (!imagePath.startsWith('/uploads/') && !imagePath.startsWith('http')) {
@@ -1794,14 +2141,12 @@ const totalCosts = driverExpenses + tripFee; // รวมค่าใช้จ�
         }
         return imagePath;
       } else {
-  if (DEBUG_REPORTS_DRIVER) console.log(`Partial main no image placeholder`, { driverName });
         return `https://ui-avatars.com/api/?name=${encodeURIComponent(driverName)}&background=0d47a1&color=fff&size=128`;
       }
     }
     
     // Check backup driver with fuzzy matching
     if (workingVehicle.backupDriverName && workingVehicle.backupDriverName.trim().toLowerCase().includes(normalizedSearchName)) {
-  if (DEBUG_REPORTS_DRIVER) console.log(`Partial backup match`, { driverName, target: workingVehicle.backupDriverName });
       const imagePath = workingVehicle.backupDriverImage;
       if (imagePath && imagePath !== 'undefined' && imagePath !== 'null') {
         if (!imagePath.startsWith('/uploads/') && !imagePath.startsWith('http')) {
@@ -1809,13 +2154,11 @@ const totalCosts = driverExpenses + tripFee; // รวมค่าใช้จ�
         }
         return imagePath;
       } else {
-  if (DEBUG_REPORTS_DRIVER) console.log(`Partial backup no image placeholder`, { driverName });
         return `https://ui-avatars.com/api/?name=${encodeURIComponent(driverName)}&background=f57c00&color=fff&size=128`;
       }
     }
     
     // Strategy 4: Final fallback - no match found
-  if (DEBUG_REPORTS_DRIVER) console.log(`No driver match`, { driverName, vehicleId: workingVehicle.id });
     
     // Use driver type to determine placeholder color
     let backgroundColor = '#607d8b'; // Default gray
@@ -1856,18 +2199,11 @@ const totalCosts = driverExpenses + tripFee; // รวมค่าใช้จ�
     try {
       const response = await fetch(`/api/drivers/by-license/${encodeURIComponent(driverLicense.trim())}`);
       if (!response.ok) {
-        if (DEBUG_REPORTS_DRIVER) {
-          console.warn(`❌ No driver found for license: ${driverLicense}`);
-        }
         return null;
       }
       
       const data = await response.json();
       const driverImage = data.driver?.driverImage;
-      
-      if (DEBUG_REPORTS_DRIVER) {
-        console.log(`✅ Found driver image for license ${driverLicense}:`, driverImage);
-      }
       
       return driverImage || null;
     } catch (error) {
@@ -2049,6 +2385,12 @@ const totalCosts = driverExpenses + tripFee; // รวมค่าใช้จ�
                 </tr>
               </tbody>
             </table>
+            {/* คำแนะนำการคำนวณค่าระยะทาง */}
+            <Box sx={{ marginTop: '6px', padding: '4px', backgroundColor: '#f5f5f5', borderRadius: '4px' }}>
+              <Typography sx={{ fontSize: 11, fontFamily: `'Sarabun', Arial, sans-serif`, color: '#555', textAlign: 'center', fontStyle: 'italic' }}>
+              * หมายเหตุ: ค่าระยะทาง คำนวณจากระยะทางรวมทั้งเดือน โดย 0-{freeDistanceThreshold.toLocaleString('th-TH')} กม.แรก ไม่คิดค่าระยะทาง และตั้งแต่ {(freeDistanceThreshold+1).toLocaleString('th-TH') } กม. ขึ้นไป คิดค่าระยะทาง × {distanceRate} บาท/กม.
+            </Typography>
+            </Box>
           </Box>
 
           {/* Detailed Data */}
@@ -2072,7 +2414,7 @@ const totalCosts = driverExpenses + tripFee; // รวมค่าใช้จ�
               </thead>
               <tbody>
                 {filteredRecords.map((record, index) => (
-                  <tr key={record.id}>
+                  <tr key={`${record.id}-${index}`}>
                     <td style={{ border: '1px solid #000', padding: '6px', textAlign: 'center', fontSize: '12px' }}>
                       {format(new Date(record.tripDate), 'dd/MM/yyyy')}
                     </td>
@@ -2384,6 +2726,16 @@ const totalCosts = driverExpenses + tripFee; // รวมค่าใช้จ�
           </Paper>
         </Box>
 
+        {/* คำแนะนำการคำนวณค่าระยะทาง */}
+        <Paper sx={{ p: 1.5, mb: 3, backgroundColor: '#f5f5f5', border: '1px solid #e0e0e0' }}>
+          <Box sx={{ display: 'flex', alignItems: 'flex-start', gap: 1 }}>
+            <InfoIcon sx={{ color: 'info.main', fontSize: 20, mt: 0.2 }} />
+            <Typography variant="body2" color="text.secondary" sx={{ fontSize: '0.85rem', fontStyle: 'italic' }}>
+              <strong>หมายเหตุ:</strong> ค่าระยะทางคำนวณจากระยะทางรวมทั้งเดือน โดย <strong>0-{freeDistanceThreshold.toLocaleString('th-TH')} กม.แรก ไม่คิดค่าระยะทาง</strong> และ <strong>ตั้งแต่ {(freeDistanceThreshold+1).toLocaleString('th-TH') } กม. ขึ้นไป คิดค่าระยะทาง × {distanceRate} บาท/กม.</strong>
+            </Typography>
+          </Box>
+        </Paper>
+
         {/* Action Buttons */}
         <Box sx={{ display: 'flex', gap: 2, mb: 3 , textAlign:'right' , flexDirection: { xs: 'column', sm: 'row' }, justifyContent: { xs: 'center', sm: 'flex-end' }, alignItems: { xs: 'center', sm: 'center' } }}>
         <Button
@@ -2444,8 +2796,8 @@ const totalCosts = driverExpenses + tripFee; // รวมค่าใช้จ�
                     </TableRow>
                   </TableHead>
                   <TableBody>
-                    {paginatedRecords.map((record) => (
-                      <TableRow key={record.id} hover>
+                    {paginatedRecords.map((record, index) => (
+                      <TableRow key={`${record.id}-${index}`} hover>
                         <TableCell>
                           <Typography variant="body2">
                             {format(new Date(record.tripDate), 'dd/MM/yyyy')}
@@ -2648,9 +3000,9 @@ const totalCosts = driverExpenses + tripFee; // รวมค่าใช้จ�
                 </Typography>
               </Paper>
             ) : (
-              paginatedRecords.map((record) => (
+              paginatedRecords.map((record, index) => (
                 <Paper 
-                  key={record.id}
+                  key={`${record.id}-${index}`}
                   sx={{ 
                     p: 3, 
                     borderRadius: 3,

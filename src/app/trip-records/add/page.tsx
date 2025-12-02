@@ -1,7 +1,7 @@
 'use client';
 import React, { useState, useEffect, useRef } from 'react';
 import { getAllowanceRate } from '@/utils/allowance';
-import { getDistanceRate, calculateDistanceCost } from '@/utils/distanceRate';
+import { getDistanceRate } from '@/utils/distanceRate';
 import {
   Box,
   Typography,
@@ -198,7 +198,6 @@ export default function AddTripRecordPage() {
   const [estimatedDistanceFromSystem, setEstimatedDistanceFromSystem] = useState<number>(0);
   const [calculatedDistanceFromOdometer, setCalculatedDistanceFromOdometer] = useState<number>(0);
   const [distanceRate, setDistanceRate] = useState<number>(0); // อัตราค่าระยะทางต่อกิโลเมตร
-  const [calculatedDistanceCost, setCalculatedDistanceCost] = useState<number>(0); // ค่าระยะทางที่คำนวณได้
   const [includeTripFee, setIncludeTripFee] = useState<boolean>(true); // ค่าเที่ยว default checked
   const [tripFeeRate, setTripFeeRate] = useState<number>(0); // อัตราค่าเที่ยว (ดึงจาก system_settings)
   const [tripFeeLoaded, setTripFeeLoaded] = useState<boolean>(false); // สถานะการโหลดค่าเที่ยว
@@ -270,21 +269,6 @@ export default function AddTripRecordPage() {
     }
   }, [formData.customer]);
 
-  // Calculate distance cost when customer or distance rate changes
-  useEffect(() => {
-    const calculateCost = async () => {
-      if (formData.customer && formData.customer.cmMileage && distanceRate > 0) {
-        const roundTripDistance = formData.customer.cmMileage * 2; // ไป-กลับ
-        const cost = await calculateDistanceCost(roundTripDistance, distanceRate);
-        setCalculatedDistanceCost(cost);
-      } else {
-        setCalculatedDistanceCost(0);
-      }
-    };
-    
-    calculateCost();
-  }, [formData.customer, distanceRate]);
-
   // Calculate distance from odometer readings and auto-fill actual distance field
   useEffect(() => {
     if (formData.odometerBefore && formData.odometerAfter) {
@@ -339,13 +323,29 @@ export default function AddTripRecordPage() {
           return true;
         }
       } else {
-        console.error('Validation error:', data);
-        setDocumentNumberError('ไม่สามารถตรวจสอบเลขที่เอกสารได้');
+        // Log detailed error information
+        console.error('Document validation failed:', {
+          status: response.status,
+          statusText: response.statusText,
+          error: data.error || 'Unknown error',
+          details: data.details || data
+        });
+        
+        // Provide user-friendly error message based on status
+        const errorMessage = data.error === 'Unauthorized' 
+          ? 'กรุณาเข้าสู่ระบบใหม่อีกครั้ง'
+          : data.details || data.error || 'ไม่สามารถตรวจสอบเลขที่เอกสารได้';
+        
+        setDocumentNumberError(errorMessage);
         return false;
       }
     } catch (error) {
-      console.error('Validation error:', error);
-      setDocumentNumberError('เกิดข้อผิดพลาดในการตรวจสอบ');
+      console.error('Document validation exception:', {
+        error,
+        message: error instanceof Error ? error.message : 'Unknown error',
+        stack: error instanceof Error ? error.stack : undefined
+      });
+      setDocumentNumberError('เกิดข้อผิดพลาดในการเชื่อมต่อกับเซิร์ฟเวอร์');
       return false;
     } finally {
       setValidatingDocumentNumber(false);
@@ -627,23 +627,21 @@ export default function AddTripRecordPage() {
     const fuel = parseFloat(formData.fuelCost) || 0;
     const toll = parseFloat(formData.tollFee) || 0;
     const repair = parseFloat(formData.repairCost) || 0;
-    const distanceCost = calculatedDistanceCost || 0; // ค่าระยะทาง
     const itemsValue = calculateTotalItemsValue();
     const tripFee = includeTripFee ? tripFeeRate : 0; // ค่าเที่ยว
     
-    // ค่าใช้จ่ายที่ต้องจ่ายพนักงานขับรถ = ค่าเบี้ยเลี้ยง + ค่าพัสดุ + ค่าระยะทาง + ค่าเที่ยว
-    const driverExpenses = calculatedAllowance + itemsValue + distanceCost + tripFee;
+    // ค่าใช้จ่ายที่ต้องจ่ายพนักงานขับรถ = ค่าเบี้ยเลี้ยง + ค่าพัสดุ + ค่าเที่ยว (ไม่รวมค่าระยะทาง เพราะคำนวณรายเดือน)
+    const driverExpenses = calculatedAllowance + itemsValue + tripFee;
     
     // ค่าใช้จ่ายของบริษัท = ค่าซ่อมแซม + ค่าทางด่วน + ค่าน้ำมัน + ค่าเช็คระยะ
     const companyExpenses = repair + toll + fuel + distanceCheck;
     
     return {
       // สำหรับ backward compatibility
-      costs: distanceCheck + fuel + toll + repair + distanceCost,
-      distanceCost, // เพิ่มค่าระยะทางแยกออกมา
+      costs: distanceCheck + fuel + toll + repair,
       itemsValue,
       tripFee, // เพิ่มค่าเที่ยวแยกออกมา
-      total: distanceCheck + fuel + toll + repair + distanceCost + itemsValue,
+      total: distanceCheck + fuel + toll + repair + itemsValue,
       
       // หมวดหมู่ใหม่
       driverExpenses,     // ค่าใช้จ่ายที่ต้องจ่ายพนักงานขับรถ
@@ -2223,7 +2221,7 @@ export default function AddTripRecordPage() {
                           label="ราคารวม"
                           type="text"
                           size="small"
-                          value={parseFloat(tripItem.totalPrice).toFixed(2)}
+                          value={(parseFloat(tripItem.totalPrice) || 0).toFixed(2)}
                           InputProps={{
                             readOnly: true,
                             endAdornment: <InputAdornment position="end">บาท</InputAdornment>,
@@ -2365,47 +2363,6 @@ export default function AddTripRecordPage() {
                       {calculatedDays >= 1 
                         ? `${calculatedDays} วัน × ${allowanceRate > 0 ? allowanceRate.toLocaleString('th-TH', { minimumFractionDigits: 2 }) : '...'} บาท`
                         : 'ต้อง ≥ 1 วัน จึงได้เบี้ยเลี้ยง'
-                      }
-                    </Typography>
-                  </Paper>
-
-                  {/* Distance Cost Card */}
-                  <Paper sx={{ 
-                    p: 2, 
-                    borderRadius: 2, 
-                    bgcolor: calculatedDistanceCost > 0 ? 'info.50' : 'grey.50',
-                    border: '2px solid',
-                    borderColor: calculatedDistanceCost > 0 ? 'info.200' : 'grey.200',
-                  }}>
-                    <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, mb: 1 }}>
-                      <Box sx={{ 
-                        width: 24, 
-                        height: 24, 
-                        borderRadius: '50%', 
-                        bgcolor: calculatedDistanceCost > 0 ? 'info.main' : 'grey.400',
-                        display: 'flex', 
-                        alignItems: 'center', 
-                        justifyContent: 'center',
-                        color: 'white',
-                        fontSize: '12px'
-                      }}>
-                        🛣️
-                      </Box>
-                      <Typography variant="subtitle2" color="text.secondary">
-                        ค่าระยะทางรวม
-                      </Typography>
-                    </Box>
-                    <Typography 
-                      variant="h4" 
-                      color={calculatedDistanceCost > 0 ? 'info.main' : 'text.secondary'}
-                      sx={{ fontWeight: 'bold', textAlign: 'center' }}
-                    >
-                      {formatCurrency(calculatedDistanceCost)}
-                    </Typography>
-                    <Typography variant="caption" color="text.secondary" sx={{ textAlign: 'center', display: 'block', mt: 1 }}>
-                      {formData.customer && formData.customer.cmMileage 
-                        ? `${estimatedDistanceFromSystem} กม. × ${distanceRate > 0 ? distanceRate.toLocaleString('th-TH', { minimumFractionDigits: 2 }) : '...'} บาท`
-                        : 'เลือกลูกค้าเพื่อคำนวณค่าระยะทาง'
                       }
                     </Typography>
                   </Paper>
@@ -2577,18 +2534,16 @@ export default function AddTripRecordPage() {
                                 <Typography variant="caption" fontWeight="bold">{formatCurrency(totals.itemsValue)}</Typography>
                               </Box>
                             )}
-                            {calculatedDistanceCost > 0 && (
-                              <Box sx={{ display: 'flex', justifyContent: 'space-between' }}>
-                                <Typography variant="caption">ค่าระยะทาง:</Typography>
-                                <Typography variant="caption" fontWeight="bold">{formatCurrency(calculatedDistanceCost)}</Typography>
-                              </Box>
-                            )}
                             {includeTripFee && tripFeeRate > 0 && (
                               <Box sx={{ display: 'flex', justifyContent: 'space-between' }}>
                                 <Typography variant="caption">ค่าเที่ยว:</Typography>
                                 <Typography variant="caption" fontWeight="bold">{formatCurrency(tripFeeRate)}</Typography>
                               </Box>
                             )}
+                              <Box sx={{ display: 'flex', justifyContent: 'space-between' }}>
+                                <Typography variant="caption">ค่าระยะทาง:</Typography>
+                                <Typography variant="caption" fontWeight="400">รอคำนวณสิ้นเดือน</Typography>
+                              </Box>
                           </Box>
                         </Paper>
                       )}

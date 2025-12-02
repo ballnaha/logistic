@@ -393,7 +393,13 @@ export default function FuelRecordsPage() {
   const fetchVehicleOptions = async () => {
     try {
       setLoadingVehicles(true);
-      const response = await fetch('/api/vehicles/options');
+      
+      // สร้าง query params สำหรับ filter ตามเดือนและปี
+      const params = new URLSearchParams();
+      if (selectedMonth) params.append('month', selectedMonth);
+      if (selectedYear) params.append('year', selectedYear);
+      
+      const response = await fetch(`/api/vehicles/options?${params}`);
       const data = await response.json();
       
       if (response.ok && data.vehicles) {
@@ -458,6 +464,13 @@ export default function FuelRecordsPage() {
       fetchFuelRecords();
     }
   }, [selectedVehicleId, selectedMonth, selectedYear]);
+
+  // Fetch vehicle options when month or year changes
+  useEffect(() => {
+    if (didInitialFetch.current) {
+      fetchVehicleOptions();
+    }
+  }, [selectedMonth, selectedYear]);
 
   // Fetch when page changes
   useEffect(() => {
