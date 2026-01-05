@@ -82,6 +82,7 @@ export default function EvaluationReportPage() {
   const [selectedMonth, setSelectedMonth] = useState<string>(new Date().getMonth() + 1 + '');
   const [selectedYear, setSelectedYear] = useState<string>(new Date().getFullYear().toString());
   const [selectedVehiclePlate, setSelectedVehiclePlate] = useState<string>('');
+  const [selectedTransportType, setSelectedTransportType] = useState('domestic');
   const [allEvaluations, setAllEvaluations] = useState<any[]>([]);
   const [reportData, setReportData] = useState<ReportSummary | null>(null);
 
@@ -107,12 +108,12 @@ export default function EvaluationReportPage() {
   const getAvailableYears = () => {
     const currentYear = new Date().getFullYear();
     const years = [];
-    
+
     // Start from current year and go back to 2025
     for (let year = currentYear; year >= 2025; year--) {
       years.push(year);
     }
-    
+
     return years;
   };
 
@@ -126,19 +127,19 @@ export default function EvaluationReportPage() {
         if (evaluationResponse.ok) {
           const evaluations = await evaluationResponse.json();
           setAllEvaluations(evaluations); // เก็บข้อมูลทั้งหมดไว้
-          
+
           // ดึงรายชื่อ vendor ที่ไม่ซ้ำจาก evaluation
           const uniqueVendors = Array.from(new Set(
             evaluations.map((evaluation: any) => evaluation.contractorName)
           )).filter(Boolean); // กรองค่าว่างออก
-          
+
           // แปลงเป็น format ที่ต้องการ
           const vendorOptions = uniqueVendors.map((name, index: number) => ({
             code: `vendor_${index}`,
             name: name as string,
             fullName: name as string
           }));
-          
+
           setVendorOptions(vendorOptions);
         } else {
           showSnackbar('ไม่สามารถดึงข้อมูลผู้รับจ้างช่วงได้', 'error');
@@ -157,7 +158,7 @@ export default function EvaluationReportPage() {
   // Get available contractors (filtered by selected month/year)
   const getAvailableContractors = () => {
     let filtered = allEvaluations;
-    
+
     // Filter by date
     if (selectedMonth && selectedYear) {
       filtered = filtered.filter(evaluation => {
@@ -176,7 +177,7 @@ export default function EvaluationReportPage() {
 
     const contractors = filtered.map(e => e.contractorName).filter(Boolean);
     const uniqueContractors = Array.from(new Set(contractors)).sort((a, b) => a.localeCompare(b));
-    
+
     // แปลงเป็น format ที่ต้องการ
     return uniqueContractors.map((name, index: number) => ({
       code: `vendor_${index}`,
@@ -188,7 +189,7 @@ export default function EvaluationReportPage() {
   // Get available vehicle plates (cascade based on contractor and date selection)
   const getAvailableVehiclePlates = () => {
     let filtered = allEvaluations;
-    
+
     // Filter by date
     if (selectedMonth && selectedYear) {
       filtered = filtered.filter(evaluation => {
@@ -210,7 +211,7 @@ export default function EvaluationReportPage() {
       const availableContractors = getAvailableContractors();
       const selectedVendorData = availableContractors.find(v => v.code === selectedVendor);
       if (selectedVendorData) {
-        filtered = filtered.filter(evaluation => 
+        filtered = filtered.filter(evaluation =>
           evaluation.contractorName === selectedVendorData.name
         );
       }
@@ -224,7 +225,7 @@ export default function EvaluationReportPage() {
   useEffect(() => {
     const availableContractors = getAvailableContractors();
     const contractorCodes = availableContractors.map(c => c.code);
-    
+
     // If selected contractor is not in the available list, reset it
     if (selectedVendor && !contractorCodes.includes(selectedVendor)) {
       setSelectedVendor('');
@@ -236,7 +237,7 @@ export default function EvaluationReportPage() {
         setSelectedVehiclePlate('');
       }
     }
-    
+
     // Reset report data when filter changes
     setReportData(null);
   }, [selectedMonth, selectedYear]);
@@ -247,11 +248,11 @@ export default function EvaluationReportPage() {
     if (selectedVehiclePlate && !availablePlates.includes(selectedVehiclePlate)) {
       setSelectedVehiclePlate('');
     }
-    
+
     // Reset report data when contractor changes
     setReportData(null);
   }, [selectedVendor]);
-  
+
   // Reset report data when vehicle plate changes
   useEffect(() => {
     setReportData(null);
@@ -263,6 +264,7 @@ export default function EvaluationReportPage() {
     setSelectedMonth((new Date().getMonth() + 1).toString());
     setSelectedYear(new Date().getFullYear().toString());
     setSelectedVehiclePlate('');
+    setSelectedTransportType('domestic');
     setReportData(null);
   };
 
@@ -284,17 +286,17 @@ export default function EvaluationReportPage() {
       const evaluations = await response.json();
       const availableContractors = getAvailableContractors();
       const selectedVendorData = availableContractors.find(v => v.code === selectedVendor);
-      
+
       // Filter evaluations by vendor, month, year, and optionally vehicle plate
       let filteredEvaluations = evaluations.filter((evaluation: any) => {
         const evalDate = new Date(evaluation.evaluationDate);
         const evalMonth = evalDate.getMonth() + 1;
         const evalYear = evalDate.getFullYear();
-        
+
         const matchesVendor = evaluation.contractorName === selectedVendorData?.name;
         const matchesDate = evalMonth.toString() === selectedMonth && evalYear.toString() === selectedYear;
         const matchesVehicle = !selectedVehiclePlate || evaluation.vehiclePlate === selectedVehiclePlate;
-        
+
         return matchesVendor && matchesDate && matchesVehicle;
       });
 
@@ -311,41 +313,41 @@ export default function EvaluationReportPage() {
       const reportItems: EvaluationReportData[] = Object.keys(vehicleGroups).map(vehiclePlate => {
         const vehicleEvaluations = vehicleGroups[vehiclePlate];
         const tripCount = vehicleEvaluations.length;
-        
+
         // Calculate simple averages (total scores divided by total trips)
-        const driverCooperationAvg = tripCount > 0 ? vehicleEvaluations.reduce((sum: number, evaluation: any) => 
+        const driverCooperationAvg = tripCount > 0 ? vehicleEvaluations.reduce((sum: number, evaluation: any) =>
           sum + evaluation.driverCooperation, 0) / tripCount : 0;
-        const vehicleConditionAvg = tripCount > 0 ? vehicleEvaluations.reduce((sum: number, evaluation: any) => 
+        const vehicleConditionAvg = tripCount > 0 ? vehicleEvaluations.reduce((sum: number, evaluation: any) =>
           sum + evaluation.vehicleCondition, 0) / tripCount : 0;
-        
+
         // Calculate damage score average with monthly logic
         let damageScoreAvg = 0;
         const damageEvaluations = vehicleEvaluations.filter((evaluation: any) => evaluation.damageFound);
-        const totalDamageValue = damageEvaluations.reduce((sum: number, evaluation: any) => 
+        const totalDamageValue = damageEvaluations.reduce((sum: number, evaluation: any) =>
           sum + (evaluation.damageValue || 0), 0);
-        
+
         // New monthly damage logic: if damage > 1 time OR total value > 300k, all trips get 0 score
         if (damageEvaluations.length > 1 || totalDamageValue > 300000) {
           damageScoreAvg = 0; // ทั้งเดือนได้ 0 คะแนน
         } else if (damageEvaluations.length === 1 && totalDamageValue <= 300000) {
           // 1 ครั้งและไม่เกิน 300k: ให้คะแนนตามปกติ (3 สำหรับไม่เสียหาย, 1 สำหรับเสียหาย)
-          const damageScoreTotal = vehicleEvaluations.reduce((sum: number, evaluation: any) => 
+          const damageScoreTotal = vehicleEvaluations.reduce((sum: number, evaluation: any) =>
             sum + (evaluation.damageFound ? 1 : 3), 0);
           damageScoreAvg = tripCount > 0 ? damageScoreTotal / tripCount : 0;
         } else {
           // ไม่มีความเสียหาย: ให้ 3 คะแนนทุกเที่ยว
           damageScoreAvg = 3;
         }
-        
+
         // Calculate max scores (per trip average)
         const driverCooperationMax = 4;
         const vehicleConditionMax = 3;
         const damageScoreMax = 3;
-        
+
         const totalScore = driverCooperationAvg + vehicleConditionAvg + damageScoreAvg;
         const maxScore = driverCooperationMax + vehicleConditionMax + damageScoreMax;
         const percentage = maxScore > 0 ? parseFloat(((totalScore / maxScore) * 100).toFixed(2)) : 0;
-        
+
         // Determine result
         let result = '';
         if (percentage > 90) result = 'ผ่าน';
@@ -458,14 +460,14 @@ export default function EvaluationReportPage() {
       <Box >
         {/* Header */}
         <Box sx={{ mb: 3, display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 1 }}>
-          
+
           <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
             <AssessmentIcon sx={{ color: 'primary.main', fontSize: 28 }} />
             <Typography variant="h5" component="h1" fontWeight="bold" sx={{ fontSize: { xs: '1.25rem', sm: '1.125rem' } }}>
               รายงานสรุปแบบประเมิน
             </Typography>
           </Box>
-          
+
         </Box>
 
         {/* Filters */}
@@ -474,13 +476,27 @@ export default function EvaluationReportPage() {
             <TrendingUpIcon color="primary" />
             เลือกเงื่อนไขรายงาน
           </Typography>
-          
-          <Box sx={{ 
-            display: 'flex', 
-            gap: 2, 
+
+          <Box sx={{
+            display: 'flex',
+            gap: 2,
             flexWrap: 'wrap',
             alignItems: 'center'
           }}>
+            <Box sx={{ minWidth: 200 }}>
+              <FormControl fullWidth size="small">
+                <InputLabel>ประเภทการขนส่ง</InputLabel>
+                <Select
+                  value={selectedTransportType}
+                  label="ประเภทการขนส่ง"
+                  onChange={(e) => setSelectedTransportType(e.target.value)}
+                >
+                  <MenuItem value="domestic">ขนส่งในประเทศ</MenuItem>
+                  <MenuItem value="international">ขนส่งต่างประเทศ</MenuItem>
+                </Select>
+              </FormControl>
+            </Box>
+
             <Box sx={{ minWidth: 200, flex: 1 }}>
               <FormControl fullWidth size="small">
                 <InputLabel>ผู้รับจ้างช่วง</InputLabel>
@@ -521,7 +537,7 @@ export default function EvaluationReportPage() {
                 </Select>
               </FormControl>
             </Box>
-            
+
             <Box sx={{ minWidth: 150 }}>
               <FormControl fullWidth size="small">
                 <InputLabel>เดือน</InputLabel>
@@ -538,7 +554,7 @@ export default function EvaluationReportPage() {
                 </Select>
               </FormControl>
             </Box>
-            
+
             <Box sx={{ minWidth: 120 }}>
               <FormControl fullWidth size="small">
                 <InputLabel>ปี</InputLabel>
@@ -555,7 +571,7 @@ export default function EvaluationReportPage() {
                 </Select>
               </FormControl>
             </Box>
-            
+
             <Box>
               <Button
                 variant="contained"
@@ -574,7 +590,7 @@ export default function EvaluationReportPage() {
               <Typography variant="caption" color="text.secondary" sx={{ mr: 1 }}>
                 ตัวกรอง:
               </Typography>
-              
+
               {selectedVendor && (
                 <Chip
                   label={`ผู้รับจ้างช่วง: ${getAvailableContractors().find(v => v.code === selectedVendor)?.name || selectedVendor}`}
@@ -623,12 +639,12 @@ export default function EvaluationReportPage() {
                 onClick={handleResetFilter}
                 variant="outlined"
                 size="small"
-                sx={{ 
+                sx={{
                   color: 'text.secondary',
                   borderColor: 'grey.300',
-                  '&:hover': { 
+                  '&:hover': {
                     color: 'error.main',
-                    borderColor: 'error.main' 
+                    borderColor: 'error.main'
                   }
                 }}
               />
@@ -638,11 +654,11 @@ export default function EvaluationReportPage() {
 
         {/* Report Content */}
         {reportData && (
-          <Paper 
+          <Paper
             id="report-content"
             className="font-sarabun"
-            sx={{ 
-              borderRadius: 0, 
+            sx={{
+              borderRadius: 0,
               boxShadow: 'none',
               backgroundColor: 'white',
               '@media print': {
@@ -655,20 +671,20 @@ export default function EvaluationReportPage() {
             <Box sx={{ p: 2 }}>
               {/* Form Number */}
               <Box sx={{ textAlign: 'right', mb: 2 }}>
-                <Typography variant="body2" sx={{ 
-                  border: '1px solid black', 
-                  display: 'inline-block', 
-                  px: 2, 
+                <Typography variant="body2" sx={{
+                  border: '1px solid black',
+                  display: 'inline-block',
+                  px: 2,
                   py: 0.5,
                   fontSize: '0.875rem'
                 }}>
-                  FM-WH-025 (02)
+                  {selectedTransportType === 'international' ? 'FM-WH-042 (01)' : 'FM-WH-025 (02)'}
                 </Typography>
               </Box>
 
               {/* Title */}
               <Box sx={{ textAlign: 'center', mb: 3 }}>
-                <Typography variant="h6" fontWeight="500" sx={{ mb: 1 , fontFamily: 'Sarabun, Arial, sans-serif' }}>
+                <Typography variant="h6" fontWeight="500" sx={{ mb: 1, fontFamily: 'Sarabun, Arial, sans-serif' }}>
                   รายงานสรุปประเมินรถขนส่งพัสดุ
                 </Typography>
               </Box>
@@ -677,7 +693,7 @@ export default function EvaluationReportPage() {
               <Box sx={{ mb: 2 }}>
                 <Box sx={{ display: 'flex', gap: 3, alignItems: 'center' }}>
                   <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
-                  <CheckBoxOutlineBlankIcon />
+                    <CheckBoxOutlineBlankIcon />
                     <Typography variant="body2" style={{ fontFamily: 'Sarabun, Arial, sans-serif' }}>PSC</Typography>
                   </Box>
                   <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
@@ -710,7 +726,7 @@ export default function EvaluationReportPage() {
               >
                 พิมพ์ PDF
               </Button>
-              
+
               <Button
                 variant="contained"
                 startIcon={<DownloadIcon />}
@@ -722,8 +738,8 @@ export default function EvaluationReportPage() {
             </Box>
 
             {/* Report Table - Minimal Style */}
-            <Box sx={{ border: '1px solid black', m: 2 , mb: 3 }}>
-              <Table size="small" sx={{ '& .MuiTableCell-root': { border: '1px solid black', fontSize: '0.75rem' } , width:'100%' }}>
+            <Box sx={{ border: '1px solid black', m: 2, mb: 3 }}>
+              <Table size="small" sx={{ '& .MuiTableCell-root': { border: '1px solid black', fontSize: '0.75rem' }, width: '100%' }}>
                 <TableHead>
                   <TableRow>
                     <TableCell sx={{ fontWeight: '500', textAlign: 'center', fontSize: '0.7rem', p: 0.5 }} style={{ fontFamily: 'Sarabun, Arial, sans-serif' }}>
@@ -791,38 +807,38 @@ export default function EvaluationReportPage() {
               </Table>
             </Box>
 
-            <Box sx={{ p: 2, borderTop: '1px solid black'}}>
-              <Box sx={{ 
-                display: 'flex', 
-                flexDirection: { xs: 'column', md: 'row' }, 
-                gap: { xs: 1, md: 3 } 
+            <Box sx={{ p: 2, borderTop: '1px solid black' }}>
+              <Box sx={{
+                display: 'flex',
+                flexDirection: { xs: 'column', md: 'row' },
+                gap: { xs: 1, md: 3 }
               }}>
                 <Box sx={{ flex: 1 }}>
-                  <Typography variant="body2" sx={{ mb: 1 , fontSize: '0.75rem' }} style={{ fontFamily: 'Sarabun, Arial, sans-serif' }}>
+                  <Typography variant="body2" sx={{ mb: 1, fontSize: '0.75rem' }} style={{ fontFamily: 'Sarabun, Arial, sans-serif' }}>
                     เปอร์เซ็นต์คะแนนที่ได้ / เดือน = คะแนนรวม x 100 / คะแนนเต็ม <br />
                     คะแนนเต็มต่อเที่ยว = 10
                   </Typography>
                 </Box>
                 <Box sx={{ flex: 1 }}>
-                  <Typography variant="body2" sx={{ mb: 1 , fontSize: '0.75rem' }} style={{ fontFamily: 'Sarabun, Arial, sans-serif' }}>
-                    คะแนนมากกว่า 90% ขึ้นไป = ผ่าน <br /> 
-                    คะแนน 80-90% = ต้องปรับปรุง <br /> 
+                  <Typography variant="body2" sx={{ mb: 1, fontSize: '0.75rem' }} style={{ fontFamily: 'Sarabun, Arial, sans-serif' }}>
+                    คะแนนมากกว่า 90% ขึ้นไป = ผ่าน <br />
+                    คะแนน 80-90% = ต้องปรับปรุง <br />
                     คะแนนน้อยกว่า 80% = ไม่ผ่าน
                   </Typography>
                 </Box>
               </Box>
             </Box>
-            
+
 
             {/* Summary Section */}
             <Box sx={{ p: 2, borderTop: '1px solid black' }}>
               <Typography variant="body2" sx={{ mb: 1 }} style={{ fontFamily: 'Sarabun, Arial, sans-serif' }}>
                 <strong>หมายเหตุ:</strong>
               </Typography>
-              <Box sx={{ 
-                display: 'flex', 
-                flexDirection: { xs: 'column', md: 'row' }, 
-                gap: { xs: 1, md: 3 } 
+              <Box sx={{
+                display: 'flex',
+                flexDirection: { xs: 'column', md: 'row' },
+                gap: { xs: 1, md: 3 }
               }}>
                 <Box sx={{ flex: 1 }}>
                   <Typography variant="body2" sx={{ fontSize: '0.75rem', mb: 1 }} style={{ fontFamily: 'Sarabun, Arial, sans-serif' }}>
@@ -845,17 +861,17 @@ export default function EvaluationReportPage() {
               <Box sx={{ textAlign: 'center', minWidth: 200 }}>
                 <Typography variant="body2" fontWeight="bold" style={{ fontFamily: 'Sarabun, Arial, sans-serif' }}>จัดทำโดย</Typography>
                 <Box sx={{ borderBottom: '1px solid black', width: '100%', height: 40, mb: 1 }}></Box>
-                
+
               </Box>
               <Box sx={{ textAlign: 'center', minWidth: 200 }}>
                 <Typography variant="body2" fontWeight="bold" style={{ fontFamily: 'Sarabun, Arial, sans-serif' }}>ตรวจสอบโดย</Typography>
                 <Box sx={{ borderBottom: '1px solid black', width: '100%', height: 40, mb: 1 }}></Box>
-                
+
               </Box>
               <Box sx={{ textAlign: 'center', minWidth: 200 }}>
                 <Typography variant="body2" fontWeight="bold" style={{ fontFamily: 'Sarabun, Arial, sans-serif' }}>รับทราบโดย</Typography>
                 <Box sx={{ borderBottom: '1px solid black', width: '100%', height: 40, mb: 1 }}></Box>
-                
+
               </Box>
             </Box>
 
