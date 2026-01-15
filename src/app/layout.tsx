@@ -13,6 +13,9 @@ import '@fontsource/prompt/700.css';
 export const metadata: Metadata = {
   title: "Logistic Management System",
   description: "ระบบจัดการขนส่งและโลจิสติกส์",
+  other: {
+    google: 'notranslate',
+  },
 };
 
 export default function RootLayout({
@@ -29,6 +32,7 @@ export default function RootLayout({
           href="https://fonts.googleapis.com/css2?family=Prompt:wght@300;400;500;600;700&display=swap"
           rel="stylesheet"
         />
+        <meta name="google" content="notranslate" />
       </head>
       <body suppressHydrationWarning={true}>
         <SessionProvider>

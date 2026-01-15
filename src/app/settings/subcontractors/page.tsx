@@ -68,6 +68,7 @@ interface Subcontractor {
   phone?: string | null;
   address?: string | null;
   remark?: string | null;
+  transportType?: string;
   isActive: boolean;
   hasReferences: boolean;
   createdAt: string;
@@ -166,12 +167,12 @@ export default function SubcontractorsPage() {
 
       if (result.success) {
         let filteredData = result.data || [];
-        
+
         // Filter ฝั่ง client ถ้าเลือก "ยกเลิกการใช้งาน"
         if (status === 'false') {
           filteredData = filteredData.filter((s: Subcontractor) => !s.isActive);
         }
-        
+
         setSubcontractors(filteredData);
       } else {
         throw new Error(result.error || 'ไม่สามารถดึงข้อมูลผู้รับจ้างช่วงได้');
@@ -306,12 +307,12 @@ export default function SubcontractorsPage() {
         <Box sx={{ mb: 3 }}>
           <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 2 }}>
             <Box sx={{ display: 'flex', alignItems: 'center', gap: 2 }}>
-              
+
               <Box>
                 <Typography variant={isMobile ? 'h5' : 'h5'} sx={{ fontWeight: 600 }}>
                   จัดการผู้รับจ้างช่วง
                 </Typography>
-                
+
               </Box>
             </Box>
             <Button
@@ -431,6 +432,7 @@ export default function SubcontractorsPage() {
                     <TableRow sx={{ bgcolor: 'grey.50' }}>
                       <TableCell sx={{ fontWeight: 'bold', minWidth: 120 }}>รหัส</TableCell>
                       <TableCell sx={{ fontWeight: 'bold', minWidth: 200 }}>ชื่อผู้รับจ้างช่วง</TableCell>
+                      <TableCell sx={{ fontWeight: 'bold', minWidth: 130 }}>ประเภทขนส่ง</TableCell>
                       <TableCell sx={{ fontWeight: 'bold', minWidth: 150 }}>ผู้ติดต่อ</TableCell>
                       <TableCell sx={{ fontWeight: 'bold', minWidth: 120 }}>เบอร์โทร</TableCell>
                       <TableCell sx={{ fontWeight: 'bold', minWidth: 100 }}>สถานะ</TableCell>
@@ -455,6 +457,15 @@ export default function SubcontractorsPage() {
                           <Typography variant="body2" fontWeight={500}>
                             {subcontractor.subcontractorName}
                           </Typography>
+                        </TableCell>
+                        <TableCell>
+                          <Chip
+                            icon={<LocalShippingIcon />}
+                            label={subcontractor.transportType === 'international' ? 'ต่างประเทศ' : 'ในประเทศ'}
+                            color={subcontractor.transportType === 'international' ? 'secondary' : 'primary'}
+                            size="small"
+                            variant="outlined"
+                          />
                         </TableCell>
                         <TableCell>
                           {subcontractor.contactPerson || '-'}
@@ -618,8 +629,8 @@ export default function SubcontractorsPage() {
             </Typography>
           </DialogContent>
           <DialogActions>
-            <Button 
-              onClick={() => setDeleteDialog({ open: false, subcontractor: null })} 
+            <Button
+              onClick={() => setDeleteDialog({ open: false, subcontractor: null })}
               disabled={deleteLoading}
             >
               ยกเลิก
@@ -659,7 +670,7 @@ export default function SubcontractorsPage() {
                       ข้อมูลพื้นฐาน
                     </Typography>
                     <Stack spacing={2}>
-                      <Box sx={{ display: 'grid', gridTemplateColumns: { xs: '1fr', md: '1fr 1fr' }, gap: 2 }}>
+                      <Box sx={{ display: 'grid', gridTemplateColumns: { xs: '1fr', md: '1fr 1fr 1fr' }, gap: 2 }}>
                         <Box>
                           <Typography variant="body2" color="text.secondary">รหัสผู้รับจ้างช่วง</Typography>
                           <Typography variant="body1" sx={{ fontWeight: 500 }}>
@@ -671,6 +682,19 @@ export default function SubcontractorsPage() {
                           <Typography variant="body1" sx={{ fontWeight: 500 }}>
                             {detailDialog.subcontractor.subcontractorName}
                           </Typography>
+                        </Box>
+                        <Box>
+                          <Typography variant="body2" color="text.secondary">
+                            <LocalShippingIcon sx={{ fontSize: 16, verticalAlign: 'middle', mr: 0.5 }} />
+                            ประเภทการขนส่ง
+                          </Typography>
+                          <Chip
+                            icon={<LocalShippingIcon />}
+                            label={detailDialog.subcontractor.transportType === 'international' ? 'ขนส่งต่างประเทศ' : 'ขนส่งในประเทศ'}
+                            color={detailDialog.subcontractor.transportType === 'international' ? 'secondary' : 'primary'}
+                            size="small"
+                            variant="outlined"
+                          />
                         </Box>
                       </Box>
 
@@ -733,7 +757,7 @@ export default function SubcontractorsPage() {
             )}
           </DialogContent>
           <DialogActions sx={{ p: 3, gap: 1 }}>
-            <Button 
+            <Button
               variant="outlined"
               onClick={() => setDetailDialog({ open: false, subcontractor: null })}
             >

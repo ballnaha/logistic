@@ -192,20 +192,27 @@ model TripItem {
 }
 
 model Evaluation {
-  id                Int      @id @default(autoincrement())
-  contractorName    String   @map("contractor_name") @db.VarChar(255)
-  vehiclePlate      String   @map("vehicle_plate") @db.VarChar(100)
-  site              String   @map("site") @db.VarChar(50)
-  driverCooperation Int      @map("driver_cooperation")
-  vehicleCondition  Int      @map("vehicle_condition")
-  damageFound       Boolean  @default(false) @map("damage_found")
-  damageValue       Decimal  @default(0.00) @map("damage_value") @db.Decimal(10, 2)
-  damageScore       Int      @default(0) @map("damage_score")
-  remark            String?  @map("remark") @db.Text
-  evaluatedBy       String   @map("evaluated_by") @db.VarChar(255)
-  evaluationDate    DateTime @map("evaluation_date")
-  createdAt         DateTime @default(now()) @map("created_at")
-  updatedAt         DateTime @updatedAt @map("updated_at")
+  id                 Int      @id @default(autoincrement())
+  contractorName     String   @map("contractor_name") @db.VarChar(255)
+  vehiclePlate       String   @map("vehicle_plate") @db.VarChar(100)
+  site               String   @map("site") @db.VarChar(50)
+  transportType      String   @default("domestic") @map("transport_type") @db.VarChar(20)
+  // Domestic fields
+  driverCooperation  Int?     @map("driver_cooperation")
+  vehicleCondition   Int?     @map("vehicle_condition")
+  damageFound        Boolean  @default(false) @map("damage_found")
+  damageValue        Decimal  @default(0.00) @map("damage_value") @db.Decimal(10, 2)
+  damageScore        Int      @default(0) @map("damage_score")
+  // International fields
+  containerCondition Int?     @map("container_condition")
+  punctuality        Int?     @map("punctuality")
+  productDamage      Int?     @map("product_damage")
+  // Common fields
+  remark             String?  @map("remark") @db.Text
+  evaluatedBy        String   @map("evaluated_by") @db.VarChar(255)
+  evaluationDate     DateTime @map("evaluation_date")
+  createdAt          DateTime @default(now()) @map("created_at")
+  updatedAt          DateTime @updatedAt @map("updated_at")
 
   @@map("evaluations")
 }
@@ -229,6 +236,7 @@ model Subcontractor {
   phone              String?  @map("phone") @db.VarChar(20)
   address            String?  @map("address") @db.Text
   remark             String?  @map("remark") @db.Text
+  transportType      String   @default("domestic") @map("transport_type") @db.VarChar(20)
   isActive           Boolean  @default(true) @map("is_active")
   createdAt          DateTime @default(now()) @map("created_at")
   updatedAt          DateTime @updatedAt @map("updated_at")

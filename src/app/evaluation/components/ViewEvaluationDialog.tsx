@@ -35,20 +35,29 @@ import { useRouter } from 'next/navigation';
 
 interface Evaluation {
   id: number;
-  driverCooperation: number;
-  vehicleCondition: number;
-  damageFound: boolean;
-  damageValue: number;
-  damageScore: number;
+  // Common
+  transportType?: string;
+  contractorName: string;
+  vehiclePlate: string;
+  site: string;
   remark: string;
   evaluatedBy: string;
   evaluationDate: string;
   totalScore: number;
   createdAt: string;
   updatedAt: string;
-  contractorName: string;
-  vehiclePlate: string;
-  site: string;
+
+  // Domestic
+  driverCooperation: number | null;
+  vehicleCondition: number | null;
+  damageFound: boolean;
+  damageValue: number;
+  damageScore: number;
+
+  // International
+  containerCondition?: number | null;
+  punctuality?: number | null;
+  productDamage?: number | null;
 }
 
 interface ViewEvaluationDialogProps {
@@ -74,14 +83,14 @@ export default function ViewEvaluationDialog({
     try {
       setLoading(true);
       const response = await fetch(`/api/evaluation/${id}`);
-      
+
       if (!response.ok) {
         if (response.status === 404) {
           throw new Error('ไม่พบแบบประเมินที่ระบุ');
         }
         throw new Error('ไม่สามารถโหลดข้อมูลได้');
       }
-      
+
       const data = await response.json();
       setEvaluation(data);
     } catch (error: any) {
@@ -105,7 +114,7 @@ export default function ViewEvaluationDialog({
         setEvaluation(null);
         setLoading(false);
       }, 300); // รอ dialog close animation
-      
+
       return () => clearTimeout(timer);
     }
   }, [open, evaluationId]);
@@ -206,9 +215,9 @@ export default function ViewEvaluationDialog({
         }
       }}
     >
-      <DialogTitle sx={{ 
-        display: 'flex', 
-        alignItems: 'center', 
+      <DialogTitle sx={{
+        display: 'flex',
+        alignItems: 'center',
         justifyContent: 'space-between',
         pb: 2,
         borderBottom: '1px solid',
@@ -225,8 +234,8 @@ export default function ViewEvaluationDialog({
         </IconButton>
       </DialogTitle>
 
-      <DialogContent sx={{ 
-        pt: 3, 
+      <DialogContent sx={{
+        pt: 3,
         pb: 2,
         px: { xs: 2, sm: 3 },
         flex: 1,
@@ -247,10 +256,10 @@ export default function ViewEvaluationDialog({
                   <CalendarIcon fontSize="small" />
                   ข้อมูลพื้นฐาน
                 </Typography>
-                <Box sx={{ 
-                  display: 'grid', 
-                  gridTemplateColumns: { xs: '1fr', sm: '1fr 1fr' }, 
-                  gap: 2 
+                <Box sx={{
+                  display: 'grid',
+                  gridTemplateColumns: { xs: '1fr', sm: '1fr 1fr' },
+                  gap: 2
                 }}>
                   <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
                     <TruckIcon fontSize="small" color="action" />
@@ -260,7 +269,7 @@ export default function ViewEvaluationDialog({
                   <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
                     <BusinessIcon fontSize="small" color="action" />
                     <Typography variant="body2" color="text.secondary">Plant:</Typography>
-                    <Chip 
+                    <Chip
                       label={getSiteDisplay(evaluation.site)}
                       size="small"
                       color="info"
@@ -293,38 +302,44 @@ export default function ViewEvaluationDialog({
                   <GradeIcon fontSize="small" />
                   คะแนนการประเมิน
                 </Typography>
-                <Box sx={{ 
-                  display: 'grid', 
-                  gridTemplateColumns: { xs: '1fr', sm: 'repeat(3, 1fr)' }, 
-                  gap: 2 
+                <Box sx={{
+                  display: 'grid',
+                  gridTemplateColumns: { xs: '1fr', sm: 'repeat(3, 1fr)' },
+                  gap: 2
                 }}>
                   <Box sx={{ textAlign: 'center', p: 2, border: '1px solid', borderColor: 'divider', borderRadius: 1 }}>
                     <Typography variant="body2" color="text.secondary" gutterBottom>
-                      การใช้ความร่วมมือของคนขับรถ
+                      {evaluation.transportType === 'international' ? 'สภาพตู้คอนเทนเนอร์ (เต็ม 3)' : 'การใช้ความร่วมมือของคนขับรถ (เต็ม 4)'}
                     </Typography>
                     <Chip
-                      label={`${evaluation.driverCooperation} คะแนน`}
-                      color={getCooperationInfo(evaluation.driverCooperation).color as any}
+                      label={`${(evaluation.transportType === 'international' ? evaluation.containerCondition : evaluation.driverCooperation) || 0}/${evaluation.transportType === 'international' ? 3 : 4}`}
+                      color={getCooperationInfo((evaluation.transportType === 'international' ? evaluation.containerCondition : evaluation.driverCooperation) || 0).color as any}
                       sx={{ mt: 1 }}
                     />
                   </Box>
                   <Box sx={{ textAlign: 'center', p: 2, border: '1px solid', borderColor: 'divider', borderRadius: 1 }}>
                     <Typography variant="body2" color="text.secondary" gutterBottom>
-                      สภาพความพร้อมของรถขนส่ง
+                      {evaluation.transportType === 'international' ? 'การตรงต่อเวลา (เต็ม 3)' : 'สภาพความพร้อมของรถขนส่ง (เต็ม 3)'}
                     </Typography>
                     <Chip
-                      label={`${evaluation.vehicleCondition} คะแนน`}
-                      color={getVehicleConditionInfo(evaluation.vehicleCondition).color as any}
+                      label={`${(evaluation.transportType === 'international' ? evaluation.punctuality : evaluation.vehicleCondition) || 0}/3`}
+                      color={(evaluation.transportType === 'international'
+                        ? getCooperationInfo(evaluation.punctuality || 0)
+                        : getVehicleConditionInfo(evaluation.vehicleCondition || 0)
+                      ).color as any}
                       sx={{ mt: 1 }}
                     />
                   </Box>
                   <Box sx={{ textAlign: 'center', p: 2, border: '1px solid', borderColor: 'divider', borderRadius: 1 }}>
                     <Typography variant="body2" color="text.secondary" gutterBottom>
-                      ความเสียหายของพัสดุ
+                      {evaluation.transportType === 'international' ? 'ความเสียหายของสินค้า (เต็ม 4)' : 'ความเสียหายของพัสดุ (เต็ม 3)'}
                     </Typography>
                     <Chip
-                      label={`${evaluation.damageScore} คะแนน`}
-                      color={getDamageScoreInfo(evaluation.damageScore).color as any}
+                      label={`${(evaluation.transportType === 'international' ? evaluation.productDamage : evaluation.damageScore) || 0}/${evaluation.transportType === 'international' ? 4 : 3}`}
+                      color={(evaluation.transportType === 'international'
+                        ? (evaluation.productDamage === 4 ? { color: 'success' } : { color: 'error' }) // Custom logic for product damage
+                        : getDamageScoreInfo(evaluation.damageScore || 0)
+                      ).color as any}
                       sx={{ mt: 1 }}
                     />
                   </Box>
@@ -342,7 +357,7 @@ export default function ViewEvaluationDialog({
                       label={`${evaluation.totalScore}/10`}
                       color={getTotalScoreColor(evaluation.totalScore) as any}
                       size="medium"
-                      sx={{ 
+                      sx={{
                         fontSize: '1.1rem',
                         height: '40px',
                         px: 2,
@@ -404,11 +419,22 @@ export default function ViewEvaluationDialog({
                     ข้อมูลความเสียหาย
                   </Typography>
                   <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
-                    
-                    <Typography variant="body2" color="text.secondary">มูลค่าความเสียหาย:</Typography>
-                    <Typography variant="body2" fontWeight={500}>
-                      {evaluation.damageValue.toLocaleString()} บาท
-                    </Typography>
+
+                    {evaluation.transportType === 'international' ? (
+                      <>
+                        <Typography variant="body2" color="text.secondary">สถานะ:</Typography>
+                        <Typography variant="body2" fontWeight={500} color="error">
+                          สินค้าเสียหาย (คะแนน: {evaluation.productDamage})
+                        </Typography>
+                      </>
+                    ) : (
+                      <>
+                        <Typography variant="body2" color="text.secondary">มูลค่าความเสียหาย:</Typography>
+                        <Typography variant="body2" fontWeight={500}>
+                          {evaluation.damageValue.toLocaleString()} บาท
+                        </Typography>
+                      </>
+                    )}
                   </Box>
                 </CardContent>
               </Card>
@@ -432,16 +458,16 @@ export default function ViewEvaluationDialog({
         )}
       </DialogContent>
 
-      <DialogActions sx={{ 
-        px: 3, 
+      <DialogActions sx={{
+        px: 3,
         py: 2,
         borderTop: '1px solid',
         borderColor: 'divider',
         gap: 1
       }}>
         <Box sx={{ flexGrow: 1 }} />
-        <Button 
-          onClick={onClose} 
+        <Button
+          onClick={onClose}
           variant="outlined"
           size="medium"
         >
@@ -458,8 +484,8 @@ export default function ViewEvaluationDialog({
         >
           แก้ไข
         </Button>
-        
+
       </DialogActions>
-    </Dialog>
+    </Dialog >
   );
 }

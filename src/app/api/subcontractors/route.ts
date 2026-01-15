@@ -46,7 +46,7 @@ export async function GET(request: NextRequest) {
           WHERE contractor_name = ${row.subcontractor_name}
           LIMIT 1
         ` as any[];
-        
+
         const hasReferences = evaluationCheck[0]?.count > 0;
 
         return {
@@ -57,6 +57,7 @@ export async function GET(request: NextRequest) {
           phone: row.phone,
           address: row.address,
           remark: row.remark,
+          transportType: row.transport_type || 'domestic',
           isActive: Boolean(row.is_active),
           hasReferences: hasReferences,
           createdAt: row.created_at,
@@ -96,6 +97,7 @@ export async function POST(request: NextRequest) {
       phone,
       address,
       remark,
+      transportType,
     } = body;
 
     // ตรวจสอบข้อมูลที่จำเป็น
@@ -127,13 +129,14 @@ export async function POST(request: NextRequest) {
     const username = session?.user?.username || session?.user?.email || 'system';
 
     // สร้างผู้รับจ้างช่วงใหม่
+    const finalTransportType = transportType || 'domestic';
     await prisma.$executeRaw`
       INSERT INTO subcontractors (
         subcontractor_code, subcontractor_name, contact_person, phone,
-        address, remark, is_active, created_at, updated_at, created_by, updated_by
+        address, remark, transport_type, is_active, created_at, updated_at, created_by, updated_by
       ) VALUES (
         ${subcontractorCode}, ${subcontractorName}, ${contactPerson || null}, ${phone || null},
-        ${address || null}, ${remark || null}, 1, NOW(), NOW(), ${username}, ${username}
+        ${address || null}, ${remark || null}, ${finalTransportType}, 1, NOW(), NOW(), ${username}, ${username}
       )
     `;
 
@@ -150,6 +153,7 @@ export async function POST(request: NextRequest) {
       phone: newSubcontractor[0].phone,
       address: newSubcontractor[0].address,
       remark: newSubcontractor[0].remark,
+      transportType: newSubcontractor[0].transport_type || 'domestic',
       isActive: Boolean(newSubcontractor[0].is_active),
       createdAt: newSubcontractor[0].created_at,
       updatedAt: newSubcontractor[0].updated_at,

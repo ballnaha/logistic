@@ -5,10 +5,10 @@ const prisma = new PrismaClient();
 
 export async function GET(
   request: NextRequest,
-  { params }: { params: { key: string } }
+  { params }: { params: Promise<{ key: string }> }
 ) {
   try {
-    const { key } = params;
+    const { key } = await params;
 
     if (!key) {
       return NextResponse.json(
@@ -31,7 +31,7 @@ export async function GET(
 
     // Handle the result - Prisma returns an array
     const result = Array.isArray(setting) ? setting[0] : setting;
-    
+
     return NextResponse.json({
       key,
       value: result.value,
@@ -41,7 +41,7 @@ export async function GET(
   } catch (error) {
     console.error('Error fetching system setting:', error);
     return NextResponse.json(
-      { 
+      {
         error: 'Failed to fetch system setting',
         details: error instanceof Error ? error.message : 'Unknown error'
       },
@@ -55,10 +55,10 @@ export async function GET(
 // Optional: Allow updating system settings
 export async function PUT(
   request: NextRequest,
-  { params }: { params: { key: string } }
+  { params }: { params: Promise<{ key: string }> }
 ) {
   try {
-    const { key } = params;
+    const { key } = await params;
     const { value } = await request.json();
 
     if (!key || value === undefined) {
@@ -87,7 +87,7 @@ export async function PUT(
   } catch (error) {
     console.error('Error updating system setting:', error);
     return NextResponse.json(
-      { 
+      {
         error: 'Failed to update system setting',
         details: error instanceof Error ? error.message : 'Unknown error'
       },

@@ -11,6 +11,10 @@ import {
   CircularProgress,
   Divider,
   IconButton,
+  FormControl,
+  InputLabel,
+  Select,
+  MenuItem,
 } from '@mui/material';
 import {
   Save as SaveIcon,
@@ -22,6 +26,7 @@ import {
   Notes as NotesIcon,
   ArrowBack as BackIcon,
   Badge as BadgeIcon,
+  LocalShipping as ShippingIcon,
 } from '@mui/icons-material';
 import { useSession } from 'next-auth/react';
 import Layout from '../../../../components/Layout';
@@ -43,6 +48,7 @@ export default function EditSubcontractorPage() {
     phone: '',
     address: '',
     remark: '',
+    transportType: 'domestic',
   });
 
   const [loading, setLoading] = useState(true);
@@ -64,6 +70,7 @@ export default function EditSubcontractorPage() {
             phone: result.data.phone || '',
             address: result.data.address || '',
             remark: result.data.remark || '',
+            transportType: result.data.transportType || 'domestic',
           });
         } else {
           showSnackbar(result.error || 'ไม่พบข้อมูลผู้รับจ้างช่วง', 'error');
@@ -89,7 +96,7 @@ export default function EditSubcontractorPage() {
       ...prev,
       [field]: event.target.value
     }));
-    
+
     // Clear error when user starts typing
     if (errors[field]) {
       setErrors(prev => ({
@@ -170,10 +177,10 @@ export default function EditSubcontractorPage() {
     <Layout showSidebar={false}>
       <Box>
         {/* Header */}
-        <Box sx={{ 
-          display: 'flex', 
-          justifyContent: 'space-between', 
-          alignItems: 'center', 
+        <Box sx={{
+          display: 'flex',
+          justifyContent: 'space-between',
+          alignItems: 'center',
           mb: 3,
           flexDirection: { xs: 'column', sm: 'row' },
           gap: 2
@@ -183,10 +190,10 @@ export default function EditSubcontractorPage() {
               แก้ไขข้อมูลผู้รับจ้างช่วง
             </Typography>
             <Typography variant="body2" color="text.secondary">
-              แก้ไขผู้รับจ้างช่วง 
+              แก้ไขผู้รับจ้างช่วง
             </Typography>
           </Box>
-          
+
           <Button
             variant="outlined"
             startIcon={<BackIcon />}
@@ -207,7 +214,7 @@ export default function EditSubcontractorPage() {
               </Typography>
               <Divider sx={{ mb: 3 }} />
 
-              <Box sx={{ display: 'grid', gridTemplateColumns: { xs: '1fr', md: '1fr 1fr' }, gap: 3 }}>
+              <Box sx={{ display: 'grid', gridTemplateColumns: { xs: '1fr', md: 'repeat(3, 1fr)' }, gap: 3 }}>
                 <TextField
                   required
                   fullWidth
@@ -237,6 +244,20 @@ export default function EditSubcontractorPage() {
                     startAdornment: <BusinessIcon sx={{ mr: 1, color: 'action.active' }} />,
                   }}
                 />
+
+                <FormControl fullWidth size="small">
+                  <InputLabel>ประเภทการขนส่ง</InputLabel>
+                  <Select
+                    value={formData.transportType}
+                    label="ประเภทการขนส่ง"
+                    onChange={(e) => setFormData(prev => ({ ...prev, transportType: e.target.value }))}
+                    disabled={submitting}
+                    startAdornment={<ShippingIcon sx={{ mr: 1, color: 'action.active' }} />}
+                  >
+                    <MenuItem value="domestic">ขนส่งในประเทศ</MenuItem>
+                    <MenuItem value="international">ขนส่งต่างประเทศ</MenuItem>
+                  </Select>
+                </FormControl>
               </Box>
             </Box>
 

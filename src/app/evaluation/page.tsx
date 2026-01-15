@@ -28,6 +28,8 @@ import {
   InputAdornment,
   useTheme,
   useMediaQuery,
+  Tabs,
+  Tab,
 } from '@mui/material';
 import {
   Add as AddIcon,
@@ -42,6 +44,8 @@ import {
   FilterList as FilterIcon,
   Analytics as AnalyticsIcon,
   Check as CheckIcon,
+  LocalShippingOutlined as TruckOutlinedIcon,
+  Public as PublicIcon,
 } from '@mui/icons-material';
 import { useRouter } from 'next/navigation';
 import { useSession } from 'next-auth/react';
@@ -56,11 +60,18 @@ interface Evaluation {
   contractorName: string;
   vehiclePlate: string;
   site: string;
-  driverCooperation: number;
-  vehicleCondition: number;
+  transportType?: string;
+  // Domestic fields
+  driverCooperation: number | null;
+  vehicleCondition: number | null;
   damageFound: boolean;
   damageValue: number;
   damageScore: number;
+  // International fields
+  containerCondition?: number | null;
+  punctuality?: number | null;
+  productDamage?: number | null;
+  // Common
   remark: string;
   evaluatedBy: string;
   evaluationDate: string;
@@ -80,14 +91,15 @@ export default function EvaluationPage() {
   const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
   const [selectedEvaluation, setSelectedEvaluation] = useState<Evaluation | null>(null);
   const [deleting, setDeleting] = useState(false);
-  
+
   // View dialog states
   const [viewDialogOpen, setViewDialogOpen] = useState(false);
   const [viewEvaluationId, setViewEvaluationId] = useState<number | null>(null);
   const [page, setPage] = useState(0);
   const [rowsPerPage, setRowsPerPage] = useState(20);
-  
+
   // Filter states
+  const [transportType, setTransportType] = useState<string>('domestic');
   const [selectedMonth, setSelectedMonth] = useState<string>((new Date().getMonth() + 1).toString());
   const [selectedYear, setSelectedYear] = useState<string>(new Date().getFullYear().toString());
   const [selectedVehiclePlate, setSelectedVehiclePlate] = useState<string>('');
@@ -120,17 +132,24 @@ export default function EvaluationPage() {
 
   // Helper: all vehicle plates available (cascade based on contractor selection)
   const getAvailableVehiclePlatesForFilter = () => {
-    // Filter by date first
-    let filteredByDate = evaluations;
+    // Filter by transport type first
+    let filtered = evaluations.filter(evaluation => {
+      if (transportType === 'domestic') {
+        return !evaluation.transportType || evaluation.transportType === 'domestic';
+      }
+      return evaluation.transportType === 'international';
+    });
+
+    // Filter by date
     if (selectedMonth && selectedYear) {
-      filteredByDate = evaluations.filter(evaluation => {
+      filtered = filtered.filter(evaluation => {
         const evalDate = new Date(evaluation.evaluationDate);
         const evalMonth = (evalDate.getMonth() + 1).toString();
         const evalYear = evalDate.getFullYear().toString();
         return evalMonth === selectedMonth && evalYear === selectedYear;
       });
     } else if (selectedYear) {
-      filteredByDate = evaluations.filter(evaluation => {
+      filtered = filtered.filter(evaluation => {
         const evalDate = new Date(evaluation.evaluationDate);
         const evalYear = evalDate.getFullYear().toString();
         return evalYear === selectedYear;
@@ -139,33 +158,40 @@ export default function EvaluationPage() {
 
     // Then filter by contractor if selected
     const filteredByContractor = selectedContractor
-      ? filteredByDate.filter(e => e.contractorName === selectedContractor)
-      : filteredByDate;
-    
+      ? filtered.filter(e => e.contractorName === selectedContractor)
+      : filtered;
+
     const plates = filteredByContractor.map(e => e.vehiclePlate).filter(Boolean);
     return Array.from(new Set(plates)).sort((a, b) => a.localeCompare(b));
   };
 
   // Helper: all contractors available (filtered by selected month/year)
   const getAvailableContractorsForFilter = () => {
+    // Filter by transport type first
+    let filtered = evaluations.filter(evaluation => {
+      if (transportType === 'domestic') {
+        return !evaluation.transportType || evaluation.transportType === 'domestic';
+      }
+      return evaluation.transportType === 'international';
+    });
+
     // Filter by date
-    let filteredByDate = evaluations;
     if (selectedMonth && selectedYear) {
-      filteredByDate = evaluations.filter(evaluation => {
+      filtered = filtered.filter(evaluation => {
         const evalDate = new Date(evaluation.evaluationDate);
         const evalMonth = (evalDate.getMonth() + 1).toString();
         const evalYear = evalDate.getFullYear().toString();
         return evalMonth === selectedMonth && evalYear === selectedYear;
       });
     } else if (selectedYear) {
-      filteredByDate = evaluations.filter(evaluation => {
+      filtered = filtered.filter(evaluation => {
         const evalDate = new Date(evaluation.evaluationDate);
         const evalYear = evalDate.getFullYear().toString();
         return evalYear === selectedYear;
       });
     }
 
-    const contractors = filteredByDate.map(e => e.contractorName).filter(Boolean);
+    const contractors = filtered.map(e => e.contractorName).filter(Boolean);
     return Array.from(new Set(contractors)).sort((a, b) => a.localeCompare(b));
   };
 
@@ -173,6 +199,14 @@ export default function EvaluationPage() {
   // Apply filters
   useEffect(() => {
     let filtered = [...evaluations];
+
+    // Transport type filter
+    filtered = filtered.filter(evaluation => {
+      if (transportType === 'domestic') {
+        return !evaluation.transportType || evaluation.transportType === 'domestic';
+      }
+      return evaluation.transportType === 'international';
+    });
 
     // Date filter
     if (selectedMonth && selectedYear) {
@@ -202,7 +236,7 @@ export default function EvaluationPage() {
 
     setFilteredEvaluations(filtered);
     setPage(0); // Reset to first page when filter changes
-  }, [evaluations, selectedMonth, selectedYear, selectedVehiclePlate, selectedContractor]);
+  }, [evaluations, selectedMonth, selectedYear, selectedVehiclePlate, selectedContractor, transportType]);
 
   // Reset vehicle plate when contractor changes (cascade effect)
   useEffect(() => {
@@ -212,7 +246,7 @@ export default function EvaluationPage() {
       const availablePlates = evaluations
         .filter(e => e.contractorName === selectedContractor)
         .map(e => e.vehiclePlate);
-      
+
       // If the selected plate is not in the available plates for this contractor, reset it
       if (selectedVehiclePlate && !availablePlates.includes(selectedVehiclePlate)) {
         setSelectedVehiclePlate('');
@@ -223,7 +257,7 @@ export default function EvaluationPage() {
   // Reset contractor and vehicle plate when date filter changes
   useEffect(() => {
     const availableContractors = getAvailableContractorsForFilter();
-    
+
     // If selected contractor is not in the available list, reset it
     if (selectedContractor && !availableContractors.includes(selectedContractor)) {
       setSelectedContractor('');
@@ -239,7 +273,7 @@ export default function EvaluationPage() {
 
   // Get unique years from evaluations
   const getAvailableYears = () => {
-    const years = evaluations.map(evaluation => 
+    const years = evaluations.map(evaluation =>
       new Date(evaluation.evaluationDate).getFullYear()
     );
     return [...new Set(years)].sort((a, b) => b - a); // Sort descending
@@ -275,10 +309,10 @@ export default function EvaluationPage() {
         throw new Error('ไม่สามารถลบข้อมูลได้');
       }
 
-  showSnackbar('ลบแบบประเมินเรียบร้อยแล้ว', 'success');
-  // ปิด dialog ก่อน แล้วค่อยล้าง state หลัง animation เพื่อไม่ให้ modal ว่างชั่วคราว
-  setDeleteDialogOpen(false);
-  loadEvaluations();
+      showSnackbar('ลบแบบประเมินเรียบร้อยแล้ว', 'success');
+      // ปิด dialog ก่อน แล้วค่อยล้าง state หลัง animation เพื่อไม่ให้ modal ว่างชั่วคราว
+      setDeleteDialogOpen(false);
+      loadEvaluations();
     } catch (error: any) {
       console.error('Error deleting evaluation:', error);
       showSnackbar(error.message || 'เกิดข้อผิดพลาดในการลบข้อมูล', 'error');
@@ -379,38 +413,38 @@ export default function EvaluationPage() {
     <Layout showSidebar={false}>
       <Box>
         {/* Header - Responsive */}
-        <Box sx={{ 
-          display: 'flex', 
-          justifyContent: 'space-between', 
-          alignItems: { xs: 'flex-start', sm: 'center' }, 
+        <Box sx={{
+          display: 'flex',
+          justifyContent: 'space-between',
+          alignItems: { xs: 'flex-start', sm: 'center' },
           mb: 3,
           flexDirection: { xs: 'column', sm: 'row' },
           gap: { xs: 2, sm: 1 }
         }}>
           <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
             <AssessmentIcon sx={{ color: 'primary.main', fontSize: { xs: 28, sm: 24 } }} />
-            <Typography 
-              variant={isMobile ? "h5" : "h6"} 
-              component="h1" 
+            <Typography
+              variant={isMobile ? "h5" : "h6"}
+              component="h1"
               fontWeight="bold"
               sx={{ fontSize: { xs: '1.25rem', sm: '1.125rem' } }}
             >
               แบบประเมิน ({filteredEvaluations.length} รายการ)
             </Typography>
           </Box>
-          <Box sx={{ 
-            display: 'flex', 
-            gap: 1, 
+          <Box sx={{
+            display: 'flex',
+            gap: 1,
             width: { xs: '100%', sm: 'auto' },
             flexDirection: { xs: 'column', sm: 'row' }
           }}>
-           
+
 
             <Button
               variant="contained"
               startIcon={<AddIcon />}
               href="/evaluation/add"
-              sx={{ 
+              sx={{
                 borderRadius: 2,
                 minHeight: { xs: 44, sm: 36 },
                 fontSize: { xs: '0.875rem', sm: '0.8125rem' }
@@ -422,17 +456,46 @@ export default function EvaluationPage() {
           </Box>
         </Box>
 
+        {/* Transport Type Tabs */}
+        <Paper sx={{ mb: 3, borderRadius: 2, overflow: 'hidden' }}>
+          <Tabs
+            value={transportType}
+            onChange={(e, newValue) => setTransportType(newValue)}
+            variant="fullWidth"
+            indicatorColor="primary"
+            textColor="primary"
+            sx={{
+              borderBottom: 1,
+              borderColor: 'divider',
+              '& .MuiTab-root': { py: 2, fontSize: '1rem', fontWeight: 600 }
+            }}
+          >
+            <Tab
+              label="ขนส่งในประเทศ"
+              value="domestic"
+              icon={<TruckOutlinedIcon />}
+              iconPosition="start"
+            />
+            <Tab
+              label="ขนส่งต่างประเทศ"
+              value="international"
+              icon={<PublicIcon />}
+              iconPosition="start"
+            />
+          </Tabs>
+        </Paper>
+
         {/* Search & Filters */}
         <Paper sx={{ p: 3, mb: 3, borderRadius: 2 }}>
           <Typography variant="h6" sx={{ mb: 2, display: 'flex', alignItems: 'center', gap: 1 }}>
             <FilterIcon color="primary" />
             ตัวกรองข้อมูล
           </Typography>
-          
+
           {/* Filters Row */}
-          <Box sx={{ 
-            display: 'flex', 
-            gap: 2, 
+          <Box sx={{
+            display: 'flex',
+            gap: 2,
             flexWrap: 'wrap',
             alignItems: 'center'
           }}>
@@ -476,7 +539,7 @@ export default function EvaluationPage() {
                 </Select>
               </FormControl>
             </Box>
-            
+
             <Box sx={{ minWidth: 150 }}>
               <FormControl fullWidth size="small">
                 <InputLabel>เดือน</InputLabel>
@@ -519,7 +582,7 @@ export default function EvaluationPage() {
               <Typography variant="caption" color="text.secondary" sx={{ mr: 1 }}>
                 ตัวกรอง:
               </Typography>
-              
+
               {selectedContractor && (
                 <Chip
                   label={`ผู้รับจ้างช่วง: ${selectedContractor}`}
@@ -568,12 +631,12 @@ export default function EvaluationPage() {
                 onClick={handleResetFilter}
                 variant="outlined"
                 size="small"
-                sx={{ 
+                sx={{
                   color: 'text.secondary',
                   borderColor: 'grey.300',
-                  '&:hover': { 
+                  '&:hover': {
                     color: 'error.main',
-                    borderColor: 'error.main' 
+                    borderColor: 'error.main'
                   }
                 }}
               />
@@ -591,7 +654,7 @@ export default function EvaluationPage() {
                   {evaluations.length === 0 ? 'ยังไม่มีแบบประเมิน' : 'ไม่พบผลการค้นหา'}
                 </Typography>
                 <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
-                  {evaluations.length === 0 
+                  {evaluations.length === 0
                     ? 'คลิกปุ่ม "สร้างแบบประเมิน" เพื่อเริ่มต้น'
                     : 'ลองเปลี่ยนคำค้นหาหรือตัวกรองอื่น ๆ'
                   }
@@ -608,170 +671,208 @@ export default function EvaluationPage() {
                 )}
               </Box>
             ) : (
-            <>
-              <TableContainer>
-                <Table size="small">
-                  <TableHead>
-                    <TableRow sx={{ backgroundColor: 'grey.50' }}>
-                      <TableCell sx={{ fontWeight: 'bold', fontSize: '0.875rem' }}>วันที่</TableCell>
-                      <TableCell sx={{ fontWeight: 'bold', fontSize: '0.875rem' }}>ผู้รับจ้างช่วง</TableCell>
-                      <TableCell sx={{ fontWeight: 'bold', fontSize: '0.875rem' }}>ทะเบียนรถ</TableCell>
-                      
-                      <TableCell sx={{ fontWeight: 'bold', fontSize: '0.875rem' }}>ความร่วมมือ</TableCell>
-                      <TableCell sx={{ fontWeight: 'bold', fontSize: '0.875rem' }}>สภาพรถ</TableCell>
-                      <TableCell sx={{ fontWeight: 'bold', fontSize: '0.875rem' }}>ความเสียหาย</TableCell>
-                      <TableCell sx={{ fontWeight: 'bold', fontSize: '0.875rem' }}>คะแนนรวม</TableCell>
-                      <TableCell sx={{ fontWeight: 'bold', textAlign: 'center', fontSize: '0.875rem' }}>จัดการ</TableCell>
-                    </TableRow>
-                  </TableHead>
-                  <TableBody>
-                    {paginatedEvaluations.map((evaluation) => (
-                      <TableRow key={evaluation.id} hover>
-                        <TableCell sx={{ py: 1 }}>
-                          <Typography variant="body2">
-                            {new Date(evaluation.evaluationDate).toLocaleDateString('th-TH', {
-                              day: '2-digit',
-                              month: '2-digit',
-                              year: '2-digit'
-                            })}
-                          </Typography>
-                          <Typography variant="caption" color="text.secondary">
-                            <ClockIcon sx={{ fontSize: 12, mr: 0.5 }} />
-                            {new Date(evaluation.evaluationDate).toLocaleTimeString('th-TH', {
-                              hour: '2-digit',
-                              minute: '2-digit'
-                          })}
-                          </Typography>
-                        </TableCell>
-                        
-                        <TableCell sx={{ py: 1 }}>
-                          <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5 }}>
-                            <BusinessIcon sx={{ color: 'primary.main', fontSize: 16 }} />
-                            <Typography variant="body2">
-                              {evaluation.contractorName || '-'}
-                            </Typography>
-                          </Box>
-                        </TableCell>
-
-                        <TableCell sx={{ py: 1 }}>
-                          <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5 }}>
-                            <TruckIcon sx={{ color: 'primary.main', fontSize: 16 }} />
-                            <Typography variant="body2" fontWeight="500">
-                              {evaluation.vehiclePlate || '-'}
-                            </Typography>
-                          </Box>
-                        </TableCell>
-
-                        <TableCell sx={{ py: 1 }}>
-                          <Chip
-                            label={`${getCooperationLabel(evaluation.driverCooperation)} (${evaluation.driverCooperation})`}
-                            color={getCooperationColor(evaluation.driverCooperation) as any}
-                            size="small"
-                            variant="outlined"
-                          />
-                        </TableCell>
-                        <TableCell sx={{ py: 1 }}>
-                          <Chip
-                            label={`${getVehicleConditionLabel(evaluation.vehicleCondition)} (${evaluation.vehicleCondition})`}
-                            color={evaluation.vehicleCondition === 3 ? 'success' : 'error'}
-                            size="small"
-                            variant="outlined"
-                          />
-                        </TableCell>
-                        <TableCell sx={{ py: 1 }}>
-                          <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5 }}>
-                            {evaluation.damageFound ? (
-                            <WarningIcon 
-                              sx={{ 
-                                color: 'error.main' , 
-                                fontSize: 16 
-                              }} 
-                            />
-                            ) : (
-                              <CheckIcon 
-                                sx={{ 
-                                  color: 'success.main' , 
-                                  fontSize: 16 
-                                }} 
-                              />
-                            )}
-                            <Box>
-                              <Typography variant="caption">
-                                {evaluation.damageFound ? `พบ (${evaluation.damageScore})` : `ไม่พบ (${evaluation.damageScore})`}
-                              </Typography>
-                              {evaluation.damageFound && evaluation.damageValue > 0 && (
-                                <Typography variant="caption" color="error" sx={{ display: 'block' }}>
-                                  {evaluation.damageValue.toLocaleString()}฿
-                                </Typography>
-                              )}
-                            </Box>
-                          </Box>
-                        </TableCell>
-                        <TableCell sx={{ py: 1 }}>
-                          <Chip
-                            label={`${evaluation.totalScore}/10`}
-                            color={getScoreColor(evaluation.totalScore, 10) as any}
-                            size="small"
-                          />
-                        </TableCell>
-
-                        <TableCell sx={{ textAlign: 'center', py: 1 }}>
-                          <Box sx={{ display: 'flex', gap: 0.5, justifyContent: 'center' }}>
-                            <Tooltip title="ดู">
-                              <IconButton
-                                size="small"
-                                onClick={() => handleView(evaluation.id)}
-                                sx={{ color: 'primary.main', p: 0.5 }}
-                              >
-                                <ViewIcon fontSize="small" />
-                              </IconButton>
-                            </Tooltip>
-                            <Tooltip title="แก้ไข">
-                              <IconButton
-                                size="small"
-                                onClick={() => router.push(`/evaluation/edit/${evaluation.id}`)}
-                                sx={{ color: 'warning.main', p: 0.5 }}
-                              >
-                                <EditIcon fontSize="small" />
-                              </IconButton>
-                            </Tooltip>
-                            <Tooltip title="ลบ">
-                              <IconButton
-                                size="small"
-                                onClick={() => {
-                                  setSelectedEvaluation(evaluation);
-                                  setDeleteDialogOpen(true);
-                                }}
-                                sx={{ color: 'error.main', p: 0.5 }}
-                              >
-                                <DeleteIcon fontSize="small" />
-                              </IconButton>
-                            </Tooltip>
-                          </Box>
-                        </TableCell>
+              <>
+                <TableContainer>
+                  <Table size="small">
+                    <TableHead>
+                      <TableRow sx={{ backgroundColor: 'grey.50' }}>
+                        <TableCell sx={{ fontWeight: 'bold', fontSize: '0.875rem' }}>วันที่/เวลา</TableCell>
+                        <TableCell sx={{ fontWeight: 'bold', fontSize: '0.875rem' }}>ผู้รับจ้างช่วง</TableCell>
+                        <TableCell sx={{ fontWeight: 'bold', fontSize: '0.875rem' }}>ทะเบียนรถ</TableCell>
+                        {transportType === 'domestic' ? (
+                          <>
+                            <TableCell sx={{ fontWeight: 'bold', fontSize: '0.875rem' }}>ความร่วมมือ</TableCell>
+                            <TableCell sx={{ fontWeight: 'bold', fontSize: '0.875rem' }}>สภาพรถ</TableCell>
+                            <TableCell sx={{ fontWeight: 'bold', fontSize: '0.875rem' }}>ความเสียหาย</TableCell>
+                          </>
+                        ) : (
+                          <>
+                            <TableCell sx={{ fontWeight: 'bold', fontSize: '0.875rem' }}>สภาพตู้คอนเทนเนอร์</TableCell>
+                            <TableCell sx={{ fontWeight: 'bold', fontSize: '0.875rem' }}>การตรงต่อเวลา</TableCell>
+                            <TableCell sx={{ fontWeight: 'bold', fontSize: '0.875rem' }}>สินค้าเสียหาย</TableCell>
+                          </>
+                        )}
+                        <TableCell sx={{ fontWeight: 'bold', fontSize: '0.875rem' }}>คะแนนรวม</TableCell>
+                        <TableCell sx={{ fontWeight: 'bold', textAlign: 'center', fontSize: '0.875rem' }}>จัดการ</TableCell>
                       </TableRow>
-                    ))}
-                  </TableBody>
-                </Table>
-              </TableContainer>
-              
-              {/* Pagination */}
-              <DataTablePagination
-                component="div"
-                count={filteredEvaluations.length}
-                rowsPerPage={rowsPerPage}
-                page={page}
-                onPageChange={handleChangePage}
-                onRowsPerPageChange={handleChangeRowsPerPage}
-                rowsPerPageOptions={[20, 50, 100, 200]}
-                labelRowsPerPage="แสดงต่อหน้า:"
-                labelDisplayedRows={({ from, to, count }) => 
-                  `${from}-${to} จาก ${count !== -1 ? count : `มากกว่า ${to}`}`
-                }
-              />
-            </>
-          )}
-        </Paper>
+                    </TableHead>
+                    <TableBody>
+                      {paginatedEvaluations.map((evaluation) => {
+                        return (
+                          <TableRow key={evaluation.id} hover>
+                            <TableCell sx={{ py: 1 }}>
+                              <Typography variant="body2">
+                                {new Date(evaluation.evaluationDate).toLocaleDateString('th-TH', {
+                                  day: '2-digit',
+                                  month: '2-digit',
+                                  year: '2-digit'
+                                })}
+                              </Typography>
+                              <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5 }}>
+                                <ClockIcon sx={{ fontSize: 12, color: 'text.secondary' }} />
+                                <Typography variant="caption" color="text.secondary">
+                                  {new Date(evaluation.evaluationDate).toLocaleTimeString('th-TH', {
+                                    hour: '2-digit',
+                                    minute: '2-digit'
+                                  })}
+                                </Typography>
+                              </Box>
+                            </TableCell>
+
+                            <TableCell sx={{ py: 1 }}>
+                              <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5 }}>
+                                <BusinessIcon sx={{ color: 'primary.main', fontSize: 16 }} />
+                                <Typography variant="body2">
+                                  {evaluation.contractorName || '-'}
+                                </Typography>
+                              </Box>
+                            </TableCell>
+
+                            <TableCell sx={{ py: 1 }}>
+                              <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5 }}>
+                                <TruckIcon sx={{ color: 'primary.main', fontSize: 16 }} />
+                                <Typography variant="body2" fontWeight="500">
+                                  {evaluation.vehiclePlate || '-'}
+                                </Typography>
+                              </Box>
+                            </TableCell>
+
+                            {transportType === 'domestic' ? (
+                              <>
+                                <TableCell sx={{ py: 1 }}>
+                                  <Chip
+                                    label={`${getCooperationLabel(evaluation.driverCooperation || 0)} (${evaluation.driverCooperation || 0})`}
+                                    color={getCooperationColor(evaluation.driverCooperation || 0) as any}
+                                    size="small"
+                                    variant="outlined"
+                                  />
+                                </TableCell>
+                                <TableCell sx={{ py: 1 }}>
+                                  <Chip
+                                    label={`${getVehicleConditionLabel(evaluation.vehicleCondition || 0)} (${evaluation.vehicleCondition || 0})`}
+                                    color={(evaluation.vehicleCondition || 0) === 3 ? 'success' : 'error'}
+                                    size="small"
+                                    variant="outlined"
+                                  />
+                                </TableCell>
+                                <TableCell sx={{ py: 1 }}>
+                                  <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5 }}>
+                                    {evaluation.damageFound ? (
+                                      <WarningIcon sx={{ color: 'error.main', fontSize: 16 }} />
+                                    ) : (
+                                      <CheckIcon sx={{ color: 'success.main', fontSize: 16 }} />
+                                    )}
+                                    <Box>
+                                      <Typography variant="caption">
+                                        {evaluation.damageFound ? `พบ (${evaluation.damageScore})` : `ไม่พบ (${evaluation.damageScore})`}
+                                      </Typography>
+                                      {evaluation.damageFound && evaluation.damageValue > 0 && (
+                                        <Typography variant="caption" color="error" sx={{ display: 'block' }}>
+                                          {evaluation.damageValue.toLocaleString()}฿
+                                        </Typography>
+                                      )}
+                                    </Box>
+                                  </Box>
+                                </TableCell>
+                              </>
+                            ) : (
+                              <>
+                                <TableCell sx={{ py: 1 }}>
+                                  <Chip
+                                    label={getCooperationLabel(evaluation.containerCondition || 0) + ` (${evaluation.containerCondition || 0})`}
+                                    color={getCooperationColor(evaluation.containerCondition || 0) as any}
+                                    size="small"
+                                    variant="outlined"
+                                  />
+                                </TableCell>
+                                <TableCell sx={{ py: 1 }}>
+                                  <Chip
+                                    label={getCooperationLabel(evaluation.punctuality || 0) + ` (${evaluation.punctuality || 0})`}
+                                    color={getCooperationColor(evaluation.punctuality || 0) as any}
+                                    size="small"
+                                    variant="outlined"
+                                  />
+                                </TableCell>
+                                <TableCell sx={{ py: 1 }}>
+                                  <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5 }}>
+                                    {(evaluation.productDamage || 0) === 4 ? (
+                                      <CheckIcon sx={{ color: 'success.main', fontSize: 16 }} />
+                                    ) : (
+                                      <WarningIcon sx={{ color: 'error.main', fontSize: 16 }} />
+                                    )}
+                                    <Typography variant="caption">
+                                      {(evaluation.productDamage || 0) === 4 ? `ไม่พบ (${evaluation.productDamage})` : `พบ (${evaluation.productDamage})`}
+                                    </Typography>
+                                  </Box>
+                                </TableCell>
+                              </>
+                            )}
+                            <TableCell sx={{ py: 1 }}>
+                              <Chip
+                                label={`${evaluation.totalScore}/10`}
+                                color={getScoreColor(evaluation.totalScore, 10) as any}
+                                size="small"
+                              />
+                            </TableCell>
+
+                            <TableCell sx={{ textAlign: 'center', py: 1 }}>
+                              <Box sx={{ display: 'flex', gap: 0.5, justifyContent: 'center' }}>
+                                <Tooltip title="ดู">
+                                  <IconButton
+                                    size="small"
+                                    onClick={() => handleView(evaluation.id)}
+                                    sx={{ color: 'primary.main', p: 0.5 }}
+                                  >
+                                    <ViewIcon fontSize="small" />
+                                  </IconButton>
+                                </Tooltip>
+                                <Tooltip title="แก้ไข">
+                                  <IconButton
+                                    size="small"
+                                    onClick={() => router.push(`/evaluation/edit/${evaluation.id}`)}
+                                    sx={{ color: 'warning.main', p: 0.5 }}
+                                  >
+                                    <EditIcon fontSize="small" />
+                                  </IconButton>
+                                </Tooltip>
+                                <Tooltip title="ลบ">
+                                  <IconButton
+                                    size="small"
+                                    onClick={() => {
+                                      setSelectedEvaluation(evaluation);
+                                      setDeleteDialogOpen(true);
+                                    }}
+                                    sx={{ color: 'error.main', p: 0.5 }}
+                                  >
+                                    <DeleteIcon fontSize="small" />
+                                  </IconButton>
+                                </Tooltip>
+                              </Box>
+                            </TableCell>
+                          </TableRow>
+                        );
+                      })}
+                    </TableBody>
+                  </Table>
+                </TableContainer>
+
+                {/* Pagination */}
+                <DataTablePagination
+                  component="div"
+                  count={filteredEvaluations.length}
+                  rowsPerPage={rowsPerPage}
+                  page={page}
+                  onPageChange={handleChangePage}
+                  onRowsPerPageChange={handleChangeRowsPerPage}
+                  rowsPerPageOptions={[20, 50, 100, 200]}
+                  labelRowsPerPage="แสดงต่อหน้า:"
+                  labelDisplayedRows={({ from, to, count }) =>
+                    `${from}-${to} จาก ${count !== -1 ? count : `มากกว่า ${to}`}`
+                  }
+                />
+              </>
+            )}
+          </Paper>
         ) : (
           /* Mobile Cards */
           <Box sx={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
@@ -789,7 +890,7 @@ export default function EvaluationPage() {
                   {evaluations.length === 0 ? 'ยังไม่มีแบบประเมิน' : 'ไม่พบผลการค้นหา'}
                 </Typography>
                 <Typography variant="body2" color="text.secondary" sx={{ mt: 1, mb: 2 }}>
-                  {evaluations.length === 0 
+                  {evaluations.length === 0
                     ? 'เริ่มต้นสร้างแบบประเมินของคุณ'
                     : 'ลองเปลี่ยนคำค้นหาหรือตัวกรองอื่น ๆ'
                   }
@@ -808,10 +909,10 @@ export default function EvaluationPage() {
               </Paper>
             ) : (
               paginatedEvaluations.map((evaluation) => (
-                <Paper 
+                <Paper
                   key={evaluation.id}
-                  sx={{ 
-                    p: 3, 
+                  sx={{
+                    p: 3,
                     borderRadius: 3,
                     boxShadow: '0 2px 8px rgba(0,0,0,0.08)',
                     border: '1px solid rgba(0,0,0,0.05)',
@@ -823,9 +924,9 @@ export default function EvaluationPage() {
                   }}
                 >
                   {/* Header with Date and Actions */}
-                  <Box sx={{ 
-                    display: 'flex', 
-                    justifyContent: 'space-between', 
+                  <Box sx={{
+                    display: 'flex',
+                    justifyContent: 'space-between',
                     alignItems: 'flex-start',
                     mb: 2
                   }}>
@@ -887,20 +988,20 @@ export default function EvaluationPage() {
 
                   {/* Vehicle and Contractor Info */}
                   <Box sx={{ display: 'flex', alignItems: 'center', gap: 2, mb: 2 }}>
-                    <Box sx={{ 
-                      width: 56, 
-                      height: 56, 
-                      borderRadius: 2, 
-                      bgcolor: 'primary.main', 
-                      display: 'flex', 
-                      alignItems: 'center', 
+                    <Box sx={{
+                      width: 56,
+                      height: 56,
+                      borderRadius: 2,
+                      bgcolor: 'primary.main',
+                      display: 'flex',
+                      alignItems: 'center',
                       justifyContent: 'center',
                       color: 'white',
                       border: '2px solid #e0e0e0'
                     }}>
                       <TruckIcon sx={{ fontSize: 24 }} />
                     </Box>
-                    
+
                     <Box sx={{ flex: 1 }}>
                       <Typography variant="subtitle1" sx={{ fontWeight: 600, mb: 0.5 }}>
                         {evaluation.vehiclePlate || '-'}
@@ -924,10 +1025,10 @@ export default function EvaluationPage() {
                   </Box>
 
                   {/* Evaluation Details */}
-                  <Box sx={{ 
-                    display: 'grid', 
-                    gridTemplateColumns: '1fr 1fr', 
-                    gap: 2, 
+                  <Box sx={{
+                    display: 'grid',
+                    gridTemplateColumns: '1fr 1fr',
+                    gap: 2,
                     py: 2,
                     borderTop: '1px solid',
                     borderBottom: '1px solid',
@@ -935,27 +1036,47 @@ export default function EvaluationPage() {
                   }}>
                     <Box>
                       <Typography variant="caption" color="text.secondary" sx={{ display: 'block' }}>
-                        ความร่วมมือ
+                        {evaluation.transportType === 'international' ? 'สภาพตู้' : 'ความร่วมมือ'}
                       </Typography>
-                      <Chip
-                        label={`${getCooperationLabel(evaluation.driverCooperation)} (${evaluation.driverCooperation})`}
-                        color={getCooperationColor(evaluation.driverCooperation) as any}
-                        size="small"
-                        variant="outlined"
-                        sx={{ mt: 0.5, fontSize: '0.75rem' }}
-                      />
+                      {evaluation.transportType === 'international' ? (
+                        <Chip
+                          label={`${getCooperationLabel(evaluation.containerCondition || 0)} (${evaluation.containerCondition || 0})`}
+                          color={getCooperationColor(evaluation.containerCondition || 0) as any}
+                          size="small"
+                          variant="outlined"
+                          sx={{ mt: 0.5, fontSize: '0.75rem' }}
+                        />
+                      ) : (
+                        <Chip
+                          label={`${getCooperationLabel(evaluation.driverCooperation || 0)} (${evaluation.driverCooperation || 0})`}
+                          color={getCooperationColor(evaluation.driverCooperation || 0) as any}
+                          size="small"
+                          variant="outlined"
+                          sx={{ mt: 0.5, fontSize: '0.75rem' }}
+                        />
+                      )}
                     </Box>
                     <Box>
                       <Typography variant="caption" color="text.secondary" sx={{ display: 'block' }}>
-                        สภาพรถ
+                        {evaluation.transportType === 'international' ? 'ตรงต่อเวลา' : 'สภาพรถ'}
                       </Typography>
-                      <Chip
-                        label={`${getVehicleConditionLabel(evaluation.vehicleCondition)} (${evaluation.vehicleCondition})`}
-                        color={evaluation.vehicleCondition === 3 ? 'success' : 'error'}
-                        size="small"
-                        variant="outlined"
-                        sx={{ mt: 0.5, fontSize: '0.75rem' }}
-                      />
+                      {evaluation.transportType === 'international' ? (
+                        <Chip
+                          label={`${getCooperationLabel(evaluation.punctuality || 0)} (${evaluation.punctuality || 0})`}
+                          color={getCooperationColor(evaluation.punctuality || 0) as any}
+                          size="small"
+                          variant="outlined"
+                          sx={{ mt: 0.5, fontSize: '0.75rem' }}
+                        />
+                      ) : (
+                        <Chip
+                          label={`${getVehicleConditionLabel(evaluation.vehicleCondition || 0)} (${evaluation.vehicleCondition || 0})`}
+                          color={(evaluation.vehicleCondition || 0) === 3 ? 'success' : 'error'}
+                          size="small"
+                          variant="outlined"
+                          sx={{ mt: 0.5, fontSize: '0.75rem' }}
+                        />
+                      )}
                     </Box>
                   </Box>
 
@@ -966,28 +1087,33 @@ export default function EvaluationPage() {
                         ความเสียหาย
                       </Typography>
                       <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5 }}>
-                        {evaluation.damageFound ? (
-                          <WarningIcon 
-                            sx={{ 
-                              color: 'error.main' , 
-                              fontSize: 16 
-                            }} 
-                          />
+                        {evaluation.transportType === 'international' ? (
+                          <>
+                            {(evaluation.productDamage || 0) === 4 ? (
+                              <CheckIcon sx={{ color: 'success.main', fontSize: 16 }} />
+                            ) : (
+                              <WarningIcon sx={{ color: 'error.main', fontSize: 16 }} />
+                            )}
+                            <Typography variant="body2" sx={{ fontWeight: 600 }}>
+                              {(evaluation.productDamage || 0) === 4 ? `ไม่พบ (${evaluation.productDamage || 0})` : `พบ (${evaluation.productDamage || 0})`}
+                            </Typography>
+                          </>
                         ) : (
-                          <CheckIcon 
-                            sx={{ 
-                              color: 'success.main' , 
-                              fontSize: 16 
-                            }} 
-                          />
+                          <>
+                            {evaluation.damageFound ? (
+                              <WarningIcon sx={{ color: 'error.main', fontSize: 16 }} />
+                            ) : (
+                              <CheckIcon sx={{ color: 'success.main', fontSize: 16 }} />
+                            )}
+                            <Typography variant="body2" sx={{ fontWeight: 600 }}>
+                              {evaluation.damageFound ? `พบ (${evaluation.damageScore})` : `ไม่พบ (${evaluation.damageScore})`}
+                            </Typography>
+                          </>
                         )}
-                        <Typography variant="body2" sx={{ fontWeight: 600 }}>
-                          {evaluation.damageFound ? `พบ (${evaluation.damageScore})` : `ไม่พบ (${evaluation.damageScore})`}
-                        </Typography>
                       </Box>
                     </Box>
                     {evaluation.damageFound && evaluation.damageValue > 0 && (
-                      <Typography variant="body2" color="error.main" sx={{ 
+                      <Typography variant="body2" color="error.main" sx={{
                         textAlign: 'right',
                         fontWeight: 600,
                         bgcolor: 'error.50',
@@ -1056,7 +1182,7 @@ export default function EvaluationPage() {
               onRowsPerPageChange={handleChangeRowsPerPage}
               rowsPerPageOptions={[20, 50, 100, 200]}
               labelRowsPerPage="แสดงต่อหน้า:"
-              labelDisplayedRows={({ from, to, count }) => 
+              labelDisplayedRows={({ from, to, count }) =>
                 `${from}-${to} จาก ${count !== -1 ? count : `มากกว่า ${to}`}`
               }
             />
@@ -1086,7 +1212,7 @@ export default function EvaluationPage() {
           <DialogTitle sx={{ color: 'error.main' }}>
             ยืนยันการลบแบบประเมิน
           </DialogTitle>
-          <DialogContent sx={{ 
+          <DialogContent sx={{
             px: { xs: 2, sm: 3 },
             py: { xs: 2, sm: 1.5 },
             flex: isMobile ? 1 : 'none'
@@ -1095,13 +1221,13 @@ export default function EvaluationPage() {
               คุณต้องการลบแบบประเมินนี้หรือไม่?
             </Typography>
             {selectedEvaluation && (
-              <Box sx={{ 
-                mt: 2, 
-                p: { xs: 2, sm: 2 }, 
-                bgcolor: 'grey.50', 
-                borderRadius: 2 , 
-                border: '1px solid', 
-                borderColor: 'grey.200' 
+              <Box sx={{
+                mt: 2,
+                p: { xs: 2, sm: 2 },
+                bgcolor: 'grey.50',
+                borderRadius: 2,
+                border: '1px solid',
+                borderColor: 'grey.200'
               }}>
                 <Typography variant="body2" sx={{ mb: 1 }}>
                   วันที่ประเมิน: {formatDate(selectedEvaluation.evaluationDate)}
@@ -1115,32 +1241,32 @@ export default function EvaluationPage() {
               </Box>
             )}
           </DialogContent>
-          <DialogActions sx={{ 
+          <DialogActions sx={{
             px: { xs: 2, sm: 3 },
             py: { xs: 2, sm: 1.5 },
             gap: { xs: 2, sm: 1 },
             flexDirection: { xs: 'column', sm: 'row' }
           }}>
-            <Button 
+            <Button
               onClick={() => setDeleteDialogOpen(false)}
               disabled={deleting}
               variant="outlined"
               fullWidth={isMobile}
-              sx={{ 
+              sx={{
                 order: { xs: 2, sm: 1 },
                 minHeight: { xs: 44, sm: 36 }
               }}
             >
               ยกเลิก
             </Button>
-            <Button 
+            <Button
               onClick={handleDelete}
               color="error"
               variant="contained"
               disabled={deleting}
               startIcon={deleting ? <CircularProgress size={20} /> : <DeleteIcon />}
               fullWidth={isMobile}
-              sx={{ 
+              sx={{
                 order: { xs: 1, sm: 2 },
                 minHeight: { xs: 44, sm: 36 }
               }}

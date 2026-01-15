@@ -8,10 +8,11 @@ const prisma = new PrismaClient();
 // GET - ดึงข้อมูลผู้รับจ้างช่วงตาม ID
 export async function GET(
   request: NextRequest,
-  { params }: { params: { id: string } }
+  { params }: { params: Promise<{ id: string }> }
 ) {
   try {
-    const id = parseInt(params.id);
+    const { id: idParam } = await params;
+    const id = parseInt(idParam);
 
     if (isNaN(id)) {
       return NextResponse.json(
@@ -46,6 +47,7 @@ export async function GET(
       phone: row.phone,
       address: row.address,
       remark: row.remark,
+      transportType: row.transport_type || 'domestic',
       isActive: Boolean(row.is_active),
       createdAt: row.created_at,
       updatedAt: row.updated_at,
@@ -70,11 +72,12 @@ export async function GET(
 // PUT - แก้ไขข้อมูลผู้รับจ้างช่วง
 export async function PUT(
   request: NextRequest,
-  { params }: { params: { id: string } }
+  { params }: { params: Promise<{ id: string }> }
 ) {
   try {
+    const { id: idParam } = await params;
     const session = await getServerSession(authOptions);
-    const id = parseInt(params.id);
+    const id = parseInt(idParam);
 
     if (isNaN(id)) {
       return NextResponse.json(
@@ -94,6 +97,7 @@ export async function PUT(
       phone,
       address,
       remark,
+      transportType,
       isActive,
     } = body;
 
@@ -135,6 +139,7 @@ export async function PUT(
     const finalCode = subcontractorCode || existingSubcontractor.subcontractor_code;
     const finalName = subcontractorName || existingSubcontractor.subcontractor_name;
     const finalIsActive = isActive !== undefined ? (isActive ? 1 : 0) : existingSubcontractor.is_active;
+    const finalTransportType = transportType || existingSubcontractor.transport_type || 'domestic';
 
     // อัปเดตข้อมูล
     await prisma.$executeRaw`
@@ -145,6 +150,7 @@ export async function PUT(
         phone = ${phone || null},
         address = ${address || null},
         remark = ${remark || null},
+        transport_type = ${finalTransportType},
         is_active = ${finalIsActive},
         updated_at = NOW(),
         updated_by = ${username}
@@ -165,6 +171,7 @@ export async function PUT(
       phone: row.phone,
       address: row.address,
       remark: row.remark,
+      transportType: row.transport_type || 'domestic',
       isActive: Boolean(row.is_active),
       createdAt: row.created_at,
       updatedAt: row.updated_at,
@@ -190,10 +197,11 @@ export async function PUT(
 // DELETE - ลบผู้รับจ้างช่วง (hard delete)
 export async function DELETE(
   request: NextRequest,
-  { params }: { params: { id: string } }
+  { params }: { params: Promise<{ id: string }> }
 ) {
   try {
-    const id = parseInt(params.id);
+    const { id: idParam } = await params;
+    const id = parseInt(idParam);
 
     if (isNaN(id)) {
       return NextResponse.json(
@@ -247,7 +255,7 @@ export async function DELETE(
     });
   } catch (error) {
     console.error('Error deleting subcontractor:', error);
-    
+
     // ตรวจสอบ foreign key constraint error
     const errorMessage = error instanceof Error ? error.message : '';
     if (errorMessage.includes('foreign key constraint') || errorMessage.includes('FOREIGN KEY')) {
@@ -259,7 +267,7 @@ export async function DELETE(
         { status: 400 }
       );
     }
-    
+
     return NextResponse.json(
       {
         success: false,
