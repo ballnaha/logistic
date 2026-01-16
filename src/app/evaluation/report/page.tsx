@@ -903,11 +903,11 @@ export default function EvaluationReportPage() {
             </Box>
 
             {/* Report Table - Minimal Style */}
-            <Box sx={{ border: '1px solid black', m: 2, mb: 3 }}>
-              <Table size="small" sx={{ '& .MuiTableCell-root': { border: '1px solid black', fontSize: '0.7rem' }, width: '100%' }}>
+            <Box sx={{ m: 2, mb: 3 }}>
+              <Table size="small" sx={{ '& .MuiTableCell-root': { border: '1px solid black', fontSize: '0.7rem' }, width: '100%', borderCollapse: 'collapse' }}>
                 <TableHead>
                   <TableRow>
-                    <TableCell sx={{ fontWeight: '500', textAlign: 'center', fontSize: '0.65rem', p: 0.5 }} style={{ fontFamily: 'Sarabun, Arial, sans-serif' }}>
+                    <TableCell sx={{ fontWeight: '500', textAlign: 'center', fontSize: '0.65rem', p: 0.5, whiteSpace: 'nowrap' }} style={{ fontFamily: 'Sarabun, Arial, sans-serif' }}>
                       ทะเบียนรถ
                     </TableCell>
                     <TableCell sx={{ fontWeight: '500', textAlign: 'center', fontSize: '0.65rem', p: 0.5 }} style={{ fontFamily: 'Sarabun, Arial, sans-serif' }}>
@@ -1062,73 +1062,83 @@ export default function EvaluationReportPage() {
 
 
             {/* Summary/Footer Section from Image */}
-            <Box sx={{ p: 2, pt: 1, pb: 4, borderTop: '2px solid grey' }}>
+            <Box sx={{ p: 2, pt: 3, pb: 4 }}>
 
-              {/* Remarks Section for Domestic only */}
+              {/* Remarks and Signature Section for Domestic - Two Column Layout */}
               {selectedTransportType === 'domestic' && (
-                <Box sx={{ mb: 4, px: 2 }}>
-                  <Typography variant="body2" sx={{ mb: 1, fontWeight: 'bold', fontFamily: 'Sarabun, Arial, sans-serif', fontSize: '0.75rem' }}>
-                    หมายเหตุ:
-                  </Typography>
+                <Box sx={{
+                  display: 'flex',
+                  flexDirection: 'row',
+                  gap: 4,
+                  px: 2
+                }}>
+                  {/* Left Column - หมายเหตุ (ก, ข, ค) - 60% */}
+                  <Box sx={{ flex: '0 0 60%' }}>
+                    <Typography variant="body2" sx={{ mb: 1, fontWeight: 'bold', fontFamily: 'Sarabun, Arial, sans-serif', fontSize: '0.75rem' }}>
+                      หมายเหตุ:
+                    </Typography>
+                    <Typography variant="body2" sx={{ fontSize: '0.65rem', mb: 1, fontFamily: 'Sarabun, Arial, sans-serif' }}>
+                      (ก) การให้ความร่วมมือของคนรถ หมายถึง มารยาทของคนขับรถ , คนขับรถให้ความร่วมมือในการคลุมผ้าใบ , การลงพัสดุ , ในกรณีที่คนขับรถให้ความร่วมมือดีมาก ให้คะแนน = 4 , ดี = 3 , ปานกลาง = 2 , ไม่ดี = 1
+                    </Typography>
+                    <Typography variant="body2" sx={{ fontSize: '0.65rem', mb: 1, fontFamily: 'Sarabun, Arial, sans-serif' }}>
+                      (ข) สภาพความพร้อมของรถขนส่ง หมายถึง รถสะอาด ไม่พบรอยรั่ว , พื้นเรียบ ไม่มีรองฝา หรือกระดานกั้นฝา ในกรณีที่รถสะอาดตามรายละเอียดข้างต้น = 3 แต่ในกรณีที่รถสกปรกจะหักคะแนน = 0 และขอให้นำรถไปทำการปรับปรุงทันที
+                    </Typography>
+                    <Typography variant="body2" sx={{ fontSize: '0.65rem', mb: 1, fontFamily: 'Sarabun, Arial, sans-serif' }}>
+                      (ค) ความเสียหายของพัสดุ กรณีที่รถขนส่งพัสดุเกิดอุบัติเหตุที่เป็นสาเหตุของพัสดุเสียหาย ในกรณีที่ไม่พบปัญหา ให้คะแนน = 3 คะแนน , กรณีที่พบปัญหา 1 ครั้งใน 1 เดือน ค่าเสียหายไม่เกิน 300,000 บาท ให้ 1 คะแนน กรณีที่พบปัญหาข้างต้นมากกว่า 1 ครั้ง/เดือน หรือมีความเสียหายมากกว่า 300,000 บาท ให้ = 0 คะแนน
+                    </Typography>
+                  </Box>
+
+                  {/* Right Column - ลายเซ็น (จัดทำโดย, ตรวจสอบโดย, รับทราบโดย) - 40% */}
                   <Box sx={{
                     display: 'flex',
-                    flexDirection: { xs: 'column', md: 'row' },
-                    gap: 3
+                    flexDirection: 'column',
+                    gap: 3,
+                    flex: '0 0 40%'
                   }}>
-                    <Box sx={{ flex: 1 }}>
-                      <Typography variant="body2" sx={{ fontSize: '0.65rem', mb: 1, fontFamily: 'Sarabun, Arial, sans-serif' }}>
-                        (ก) การให้ความร่วมมือของคนรถ หมายถึง มารยาทของคนขับรถ , คนขับรถให้ความร่วมมือในการคลุมผ้าใบ , การลงพัสดุ , ในกรณีที่คนขับรถให้ความร่วมมือดีมาก ให้คะแนน = 4 , ดี = 3 , ปานกลาง = 2 , ไม่ดี = 1
+                    {/* จัดทำโดย */}
+                    <Box sx={{ textAlign: 'left' }}>
+                      <Typography variant="body1" fontWeight="bold" sx={{ mb: 3, fontFamily: 'Sarabun, Arial, sans-serif', fontSize: '0.85rem' }}>
+                        จัดทำโดย
                       </Typography>
-                      <Typography variant="body2" sx={{ fontSize: '0.65rem', mb: 1, fontFamily: 'Sarabun, Arial, sans-serif' }}>
-                        (ข) สภาพความพร้อมของรถขนส่ง หมายถึง รถสะอาด ไม่พบรอยรั่ว , พื้นเรียบ ไม่มีรองฝา หรือกระดานกั้นฝา ในกรณีที่รถสะอาดตามรายละเอียดข้างต้น = 3 แต่ในกรณีที่รถสกปรกจะหักคะแนน = 0 และขอให้นำรถไปทำการปรับปรุงทันที
-                      </Typography>
+                      <Box sx={{ borderBottom: '1px solid black', width: '100%' }}></Box>
                     </Box>
-                    <Box sx={{ flex: 1 }}>
-                      <Typography variant="body2" sx={{ fontSize: '0.65rem', mb: 1, fontFamily: 'Sarabun, Arial, sans-serif' }}>
-                        (ค) ความเสียหายของพัสดุ กรณีที่รถขนส่งพัสดุเกิดอุบัติเหตุที่เป็นสาเหตุของพัสดุเสียหาย ในกรณีที่ไม่พบปัญหา ให้คะแนน = 3 คะแนน , กรณีที่พบปัญหา 1 ครั้งใน 1 เดือน ค่าเสียหายไม่เกิน 300,000 บาท ให้ 1 คะแนน กรณีที่พบปัญหาข้างต้นมากกว่า 1 ครั้ง/เดือน หรือมีความเสียหายมากกว่า 300,000 บาท ให้ = 0 คะแนน
-                      </Typography>
-                    </Box>
-                  </Box>
-                </Box>
-              )}
-
-              {/* Signature Section */}
-              {/* Signature Section - Unified Style */}
-              <Box sx={{
-                px: 2,
-                mt: 4,
-                display: 'flex',
-                flexDirection: 'row',
-                gap: 10,
-                justifyContent: 'flex-start'
-              }}>
-                {/* จัดทำโดย */}
-                <Box sx={{ textAlign: 'left', width: '250px' }}>
-                  <Typography variant="body1" fontWeight="bold" sx={{ mb: 6, fontFamily: 'Sarabun, Arial, sans-serif', fontSize: '0.85rem' }}>
-                    จัดทำโดย
-                  </Typography>
-                  <Box sx={{ borderBottom: '1px solid black', width: '100%' }}></Box>
-                </Box>
-
-                {selectedTransportType === 'domestic' && (
-                  <>
                     {/* ตรวจสอบโดย */}
-                    <Box sx={{ textAlign: 'left', width: '250px' }}>
-                      <Typography variant="body1" fontWeight="bold" sx={{ mb: 6, fontFamily: 'Sarabun, Arial, sans-serif', fontSize: '0.85rem' }}>
+                    <Box sx={{ textAlign: 'left' }}>
+                      <Typography variant="body1" fontWeight="bold" sx={{ mb: 3, fontFamily: 'Sarabun, Arial, sans-serif', fontSize: '0.85rem' }}>
                         ตรวจสอบโดย
                       </Typography>
                       <Box sx={{ borderBottom: '1px solid black', width: '100%' }}></Box>
                     </Box>
                     {/* รับทราบโดย */}
-                    <Box sx={{ textAlign: 'left', width: '250px' }}>
-                      <Typography variant="body1" fontWeight="bold" sx={{ mb: 6, fontFamily: 'Sarabun, Arial, sans-serif', fontSize: '0.9rem' }}>
+                    <Box sx={{ textAlign: 'left' }}>
+                      <Typography variant="body1" fontWeight="bold" sx={{ mb: 3, fontFamily: 'Sarabun, Arial, sans-serif', fontSize: '0.85rem' }}>
                         รับทราบโดย
                       </Typography>
                       <Box sx={{ borderBottom: '1px solid black', width: '100%' }}></Box>
                     </Box>
-                  </>
-                )}
-              </Box>
+                  </Box>
+                </Box>
+              )}
+
+              {/* Signature Section for International only */}
+              {selectedTransportType === 'international' && (
+                <Box sx={{
+                  px: 2,
+                  mt: 4,
+                  display: 'flex',
+                  flexDirection: 'row',
+                  gap: 10,
+                  justifyContent: 'flex-start'
+                }}>
+                  {/* จัดทำโดย */}
+                  <Box sx={{ textAlign: 'left', width: '250px' }}>
+                    <Typography variant="body1" fontWeight="bold" sx={{ mb: 6, fontFamily: 'Sarabun, Arial, sans-serif', fontSize: '0.85rem' }}>
+                      จัดทำโดย
+                    </Typography>
+                    <Box sx={{ borderBottom: '1px solid black', width: '100%' }}></Box>
+                  </Box>
+                </Box>
+              )}
             </Box>
 
 
