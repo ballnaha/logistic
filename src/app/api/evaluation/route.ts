@@ -231,7 +231,7 @@ export async function POST(request: NextRequest) {
       }
       if (damageFound === undefined) {
         return NextResponse.json(
-          { message: 'กรุณาระบุความเสียหายของพัสดุ' },
+          { message: 'กรุณาระบุความเสียหายของสินค้า' },
           { status: 400 }
         );
       }

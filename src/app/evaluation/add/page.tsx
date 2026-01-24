@@ -1259,11 +1259,11 @@ export default function AddEvaluationPage() {
                       </FormControl>
                     </Box>
 
-                    {/* 3. ความเสียหายของพัสดุ */}
+                    {/* 3. ความเสียหายของสินค้า */}
                     <Box>
                       <Box sx={{ display: 'flex', alignItems: 'center', gap: 2, mb: 2 }}>
                         <Typography variant="body1" fontWeight="500">
-                          3. ความเสียหายของพัสดุ *
+                          3. ความเสียหายของสินค้า *
                         </Typography>
                         {damageScore !== null && (
                           <Box sx={{

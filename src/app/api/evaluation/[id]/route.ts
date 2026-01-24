@@ -171,7 +171,7 @@ export async function PUT(
       }
       if (damageFound === undefined) {
         return NextResponse.json(
-          { message: 'กรุณาระบุความเสียหายของพัสดุ' },
+          { message: 'กรุณาระบุความเสียหายของสินค้า' },
           { status: 400 }
         );
       }

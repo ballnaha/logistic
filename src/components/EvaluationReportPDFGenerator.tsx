@@ -325,7 +325,7 @@ export class EvaluationReportPDFGenerator {
                       ` : `
                         <th style="border: 1px solid black; padding: 4px; text-align: center; font-size: 0.7rem;">(ก) ความร่วมมือคนขับ (4)</th>
                         <th style="border: 1px solid black; padding: 4px; text-align: center; font-size: 0.7rem;">(ข) สภาพความพร้อมของรถ (3)</th>
-                        <th style="border: 1px solid black; padding: 4px; text-align: center; font-size: 0.7rem;">(ค) ความเสียหายของพัสดุ (3)</th>
+                        <th style="border: 1px solid black; padding: 4px; text-align: center; font-size: 0.7rem;">(ค) ความเสียหายของสินค้า (3)</th>
                       `}
                       <th style="border: 1px solid black; padding: 4px; text-align: center; font-size: 0.7rem;">คะแนนรวม</th>
                       <th style="border: 1px solid black; padding: 4px; text-align: center; font-size: 0.7rem;">คะแนนเต็ม</th>

@@ -332,7 +332,7 @@ export default function ViewEvaluationDialog({
                   </Box>
                   <Box sx={{ textAlign: 'center', p: 2, border: '1px solid', borderColor: 'divider', borderRadius: 1 }}>
                     <Typography variant="body2" color="text.secondary" gutterBottom>
-                      {evaluation.transportType === 'international' ? 'ความเสียหายของสินค้า (เต็ม 4)' : 'ความเสียหายของพัสดุ (เต็ม 3)'}
+                      {evaluation.transportType === 'international' ? 'ความเสียหายของสินค้า (เต็ม 4)' : 'ความเสียหายของสินค้า (เต็ม 3)'}
                     </Typography>
                     <Chip
                       label={`${(evaluation.transportType === 'international' ? evaluation.productDamage : evaluation.damageScore) || 0}/${evaluation.transportType === 'international' ? 4 : 3}`}

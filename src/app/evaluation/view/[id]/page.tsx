@@ -57,14 +57,14 @@ export default function ViewEvaluationPage() {
     try {
       setLoading(true);
       const response = await fetch(`/api/evaluation/${evaluationId}`);
-      
+
       if (!response.ok) {
         if (response.status === 404) {
           throw new Error('ไม่พบแบบประเมินที่ระบุ');
         }
         throw new Error('ไม่สามารถโหลดข้อมูลได้');
       }
-      
+
       const data = await response.json();
       setEvaluation(data);
     } catch (error: any) {
@@ -106,7 +106,7 @@ export default function ViewEvaluationPage() {
 
   // Get vehicle condition info
   const getVehicleConditionInfo = (score: number) => {
-    return score === 3 
+    return score === 3
       ? { label: 'สะอาด', color: 'success' }
       : { label: 'ไม่สะอาด', color: 'error' };
   };
@@ -153,7 +153,7 @@ export default function ViewEvaluationPage() {
               variant="outlined"
               startIcon={<BackIcon />}
               onClick={() => router.push('/evaluation')}
-              sx={{ 
+              sx={{
                 borderColor: 'grey.300',
                 color: 'grey.700',
                 '&:hover': { borderColor: 'grey.400' }
@@ -172,7 +172,7 @@ export default function ViewEvaluationPage() {
             variant="contained"
             startIcon={<EditIcon />}
             onClick={() => router.push(`/evaluation/edit/${evaluation.id}`)}
-            sx={{ 
+            sx={{
               background: 'linear-gradient(45deg, #FF9800 30%, #FFB74D 90%)',
               '&:hover': {
                 background: 'linear-gradient(45deg, #F57C00 30%, #FF9800 90%)',
@@ -186,9 +186,9 @@ export default function ViewEvaluationPage() {
         <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 3 }}>
           {/* Summary Card */}
           <Box sx={{ flex: { xs: '1 1 100%', md: '1 1 32%' }, minWidth: { xs: '100%', md: 300 } }}>
-            <Card 
-              elevation={0} 
-              sx={{ 
+            <Card
+              elevation={0}
+              sx={{
                 borderRadius: 2,
                 border: '1px solid',
                 borderColor: 'grey.200',
@@ -215,10 +215,10 @@ export default function ViewEvaluationPage() {
 
           {/* Basic Info Card */}
           <Box sx={{ flex: { xs: '1 1 100%', md: '1 1 65%' }, minWidth: { xs: '100%', md: 400 } }}>
-            <Paper 
-              elevation={0} 
-              sx={{ 
-                p: 3, 
+            <Paper
+              elevation={0}
+              sx={{
+                p: 3,
                 borderRadius: 2,
                 border: '1px solid',
                 borderColor: 'grey.200'
@@ -230,7 +230,7 @@ export default function ViewEvaluationPage() {
                   ข้อมูลพื้นฐาน
                 </Typography>
               </Box>
-              
+
               <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 2 }}>
                 <Box sx={{ flex: { xs: '1 1 100%', sm: '1 1 48%' }, minWidth: { xs: '100%', sm: 200 }, mb: 2 }}>
                   <Typography variant="body2" color="text.secondary">
@@ -270,10 +270,10 @@ export default function ViewEvaluationPage() {
 
           {/* Evaluation Details */}
           <Box sx={{ width: '100%', mt: 3 }}>
-            <Paper 
-              elevation={0} 
-              sx={{ 
-                p: 4, 
+            <Paper
+              elevation={0}
+              sx={{
+                p: 4,
                 borderRadius: 2,
                 border: '1px solid',
                 borderColor: 'grey.200'
@@ -323,12 +323,12 @@ export default function ViewEvaluationPage() {
 
               <Divider sx={{ my: 3 }} />
 
-              {/* 3. ความเสียหายของพัสดุ */}
+              {/* 3. ความเสียหายของสินค้า */}
               <Box sx={{ mb: 4 }}>
                 <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, mb: 2 }}>
                   <WarningIcon sx={{ color: 'primary.main' }} />
                   <Typography variant="subtitle1" fontWeight="bold">
-                    3. ความเสียหายของพัสดุ
+                    3. ความเสียหายของสินค้า
                   </Typography>
                 </Box>
                 <Box sx={{ pl: 4 }}>
@@ -340,7 +340,7 @@ export default function ViewEvaluationPage() {
                       sx={{ fontWeight: 'bold' }}
                     />
                   </Box>
-                  
+
                   {evaluation.damageFound && evaluation.damageValue > 0 && (
                     <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, mt: 2 }}>
                       <MoneyIcon sx={{ color: 'error.main' }} />
@@ -363,11 +363,11 @@ export default function ViewEvaluationPage() {
                         หมายเหตุ
                       </Typography>
                     </Box>
-                    <Box 
-                      sx={{ 
-                        pl: 4, 
-                        p: 2, 
-                        bgcolor: 'grey.50', 
+                    <Box
+                      sx={{
+                        pl: 4,
+                        p: 2,
+                        bgcolor: 'grey.50',
                         borderRadius: 1,
                         border: '1px solid',
                         borderColor: 'grey.200'
@@ -385,10 +385,10 @@ export default function ViewEvaluationPage() {
 
           {/* Score Breakdown */}
           <Box sx={{ width: '100%', mt: 3 }}>
-            <Paper 
-              elevation={0} 
-              sx={{ 
-                p: 3, 
+            <Paper
+              elevation={0}
+              sx={{
+                p: 3,
                 borderRadius: 2,
                 border: '1px solid',
                 borderColor: 'grey.200',
@@ -446,7 +446,7 @@ export default function ViewEvaluationPage() {
               </Box>
             </Paper>
           </Box>
-  </Box>
+        </Box>
       </Box>
     </Layout>
   );
